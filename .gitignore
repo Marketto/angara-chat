@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+*.zip
+.DS_Store
+apps/api/prisma/dev.db*
+apps/web/public/sw.js
+apps/web/public/workbox-*.js
+apps/web/public/registerSW.js
+apps/web/public/manifest.webmanifest

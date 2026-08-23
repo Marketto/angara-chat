@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String               @id @default(cuid())
+  googleSub     String               @unique
+  email         String               @unique
+  name          String
+  avatarUrl     String?
+  createdAt     DateTime             @default(now())
+  sessions      Session[]
+  memberships   ConversationMember[]
+  messages      Message[]
+  subscriptions PushSubscription[]
+  devices       Device[]
+}
+
+model Device {
+  id               String    @id
+  userId           String    @unique
+  publicKey         Json
+  fingerprint       String
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentMessages      Message[] @relation("SenderDevice")
+  receivedMessages  Message[] @relation("RecipientDevice")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model Conversation {
+  id        String               @id @default(cuid())
+  directKey String               @unique
+  createdAt DateTime             @default(now())
+  members   ConversationMember[]
+  messages  Message[]
+}
+
+model ConversationMember {
+  conversationId String
+  userId         String
+  joinedAt       DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  clientId       String
+  conversationId String
+  senderId       String
+  senderDeviceId String
+  recipientDeviceId String
+  ciphertext     String       @db.Text
+  iv             String       @db.VarChar(32)
+  version        Int          @default(1)
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderDevice   Device       @relation("SenderDevice", fields: [senderDeviceId], references: [id], onDelete: Restrict)
+  recipientDevice Device      @relation("RecipientDevice", fields: [recipientDeviceId], references: [id], onDelete: Restrict)
+
+  @@unique([conversationId, clientId])
+  @@index([conversationId, createdAt])
+  @@index([senderDeviceId])
+  @@index([recipientDeviceId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique @db.Text
+  p256dh    String
+  auth      String
+  userId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
