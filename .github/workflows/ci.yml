@@ -5,6 +5,9 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -36,6 +39,7 @@ jobs:
         with: { node-version: 24 }
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm db:generate
+      - run: pnpm --filter @angara/api db:deploy
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
