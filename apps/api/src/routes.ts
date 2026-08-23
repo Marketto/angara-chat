@@ -23,8 +23,8 @@ api.post('/auth/google', authLimit, async (request, response) => {
   }
   const user = await db.user.upsert({
     where: { googleSub: payload.sub },
-    update: { email: payload.email.toLowerCase(), name: payload.name, avatarUrl: payload.picture },
-    create: { googleSub: payload.sub, email: payload.email.toLowerCase(), name: payload.name, avatarUrl: payload.picture },
+    update: { email: payload.email.toLowerCase(), name: payload.name, avatarUrl: payload.picture ?? null },
+    create: { googleSub: payload.sub, email: payload.email.toLowerCase(), name: payload.name, avatarUrl: payload.picture ?? null },
     select: { id: true, email: true, name: true, avatarUrl: true },
   });
   await createSession(user.id, response);
