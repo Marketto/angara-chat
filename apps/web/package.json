@@ -28,6 +28,7 @@
     "vitest": "^3.2.4",
     "vue-eslint-parser": "^10.2.0",
     "workbox-precaching": "^7.3.0",
+    "workbox-window": "^7.3.0",
     "vue-tsc": "^3.0.6"
   }
 }
