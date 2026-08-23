@@ -131,6 +131,11 @@ async function openConversation(id: string) {
   await scrollToBottom();
 }
 
+function closeConversation() {
+  activeId.value = null;
+  history.replaceState({}, '', '/');
+}
+
 async function scrollToBottom() {
   await nextTick();
   messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' });
@@ -257,7 +262,7 @@ async function logout() {
     <section class="chat" :class="{ hiddenMobile: !activeId }">
       <template v-if="activeConversation">
         <header class="chat-header">
-          <button class="back" aria-label="Torna alle conversazioni" @click="activeId = null; history.replaceState({}, '', '/')">‹</button>
+          <button class="back" aria-label="Torna alle conversazioni" @click="closeConversation">‹</button>
           <img :src="activeConversation.peer?.avatarUrl || '/icon.svg'" alt="" referrerpolicy="no-referrer">
           <strong>{{ activeConversation.peer?.name }}</strong>
           <button class="security-button" title="Verifica chiavi di sicurezza" @click="showFingerprints = true">◇ E2EE</button>
