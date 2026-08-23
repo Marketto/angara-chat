@@ -8,7 +8,7 @@
     "dev": "vite --host 0.0.0.0",
     "lint": "eslint src",
     "test": "vitest run --coverage",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.sw.json"
   },
   "dependencies": {
     "socket.io-client": "^4.8.1",
@@ -27,6 +27,7 @@
     "vite-plugin-pwa": "^1.0.3",
     "vitest": "^3.2.4",
     "vue-eslint-parser": "^10.2.0",
+    "workbox-precaching": "^7.3.0",
     "vue-tsc": "^3.0.6"
   }
 }
