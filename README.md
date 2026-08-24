@@ -4,7 +4,7 @@ Angara is a small, self-hosted text chat named after the Siberian river flowing 
 
 > **Security boundary:** message text is encrypted and decrypted in the browser. The server persists only authenticated ciphertext. This first E2EE version is single-device and does not implement Signal's Double Ratchet, forward secrecy or post-compromise security. Read [docs/e2ee.md](docs/e2ee.md) before using it for sensitive communication.
 
-Project orientation: [architecture](docs/architecture.md), [development guide](docs/development.md), [operations runbook](docs/operations.md), and [agent router](AGENTS.md).
+Project orientation: [AI/contributor context](docs/ai-context.md), [architecture](docs/architecture.md), [development guide](docs/development.md), [operations runbook](docs/operations.md), and [agent router](AGENTS.md).
 
 ## What works
 
