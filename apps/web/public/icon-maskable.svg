@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Angara, ispirata alla Cattedrale della Dormizione di Omsk">
-  <rect width="512" height="512" rx="112" fill="#123f4a"/>
+  <rect width="512" height="512" fill="#123f4a"/>
   <circle cx="256" cy="246" r="178" fill="#e8d7ae" opacity=".18"/>
   <path fill="#f7f1e5" d="M108 379h296v34H108zM130 352h252v28H130zM151 236h210v116H151z"/>
   <path fill="#e8774d" d="M143 236h226l-16-38H159z"/>

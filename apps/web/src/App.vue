@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { io, type Socket } from 'socket.io-client';
 import { api } from './api';
 import { contactEmails } from './contacts';
 import { decryptText, encryptText, formatFingerprint } from './crypto';
 import { createLocalDevice, loadLocalDevice, pinPeerKey } from './device-store';
 import { enablePush } from './push';
-import type { Conversation, DecryptedMessage, LocalDevice, Message, PublicConfig, User } from './types';
+import { locale, supportedLocales, t, type Locale } from './i18n';
+import type { Conversation, DecryptedMessage, InstallPromptEvent, LocalDevice, Message, PublicConfig, User } from './types';
 
 const me = ref<User | null>(null);
 const config = ref<PublicConfig | null>(null);
@@ -25,12 +26,19 @@ const localDevice = shallowRef<LocalDevice | null>(null);
 const cryptoError = ref('');
 const keyChanged = ref(false);
 const showFingerprints = ref(false);
+const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
+const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
 let socket: Socket | null = null;
 
 const activeConversation = computed(() => conversations.value.find(({ id }) => id === activeId.value) ?? null);
 const canPickContacts = computed(() => Boolean(navigator.contacts?.select));
 
+watch(locale, (value) => { document.documentElement.lang = value; }, { immediate: true });
+function setLocale(event: Event) { locale.value = (event.target as HTMLSelectElement).value as Locale; }
+
 onMounted(async () => {
+  window.addEventListener('beforeinstallprompt', captureInstallPrompt);
+  window.addEventListener('appinstalled', clearInstallPrompt);
   try {
     config.value = await api.config();
     me.value = await api.me();
@@ -42,7 +50,26 @@ onMounted(async () => {
   }
 });
 
-onBeforeUnmount(() => socket?.disconnect());
+onBeforeUnmount(() => {
+  socket?.disconnect();
+  window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
+  window.removeEventListener('appinstalled', clearInstallPrompt);
+});
+
+function captureInstallPrompt(event: Event) {
+  event.preventDefault();
+  deferredInstallPrompt.value = event as InstallPromptEvent;
+}
+
+function clearInstallPrompt() { deferredInstallPrompt.value = null; }
+
+async function installApp() {
+  const prompt = deferredInstallPrompt.value;
+  if (!prompt) return;
+  await prompt.prompt();
+  await prompt.userChoice;
+  clearInstallPrompt();
+}
 
 async function renderGoogleLogin() {
   if (!config.value) return;
@@ -65,7 +92,7 @@ async function renderGoogleLogin() {
       try {
         me.value = await api.login(credential);
         await enterApp();
-      } catch { error.value = 'Accesso non riuscito. Riprova.'; }
+      } catch { error.value = t('loginFailed'); }
     },
   });
   window.google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with' });
@@ -75,8 +102,7 @@ async function enterApp() {
   try { await ensureCryptoDevice(); }
   catch (caught) {
     cryptoError.value = caught instanceof Error && caught.message === 'DEVICE_KEY_MISSING'
-      ? 'Questo account è già associato a un altro dispositivo. Senza la chiave privata originale i vecchi messaggi non possono essere decifrati.'
-      : 'Impossibile inizializzare la cifratura su questo dispositivo.';
+      ? t('deviceMissing') : t('cryptoFailed');
     return;
   }
   conversations.value = await api.conversations();
@@ -114,14 +140,14 @@ async function openConversation(id: string) {
   error.value = '';
   const conversation = conversations.value.find((item) => item.id === id);
   if (!conversation?.peer?.device) {
-    error.value = 'La persona deve aprire Angara sul proprio dispositivo prima di poter ricevere messaggi cifrati.';
+    error.value = t('peerNeedsDevice');
     return;
   }
   if (!me.value) return;
   const trust = await pinPeerKey(me.value.id, conversation.peer.id, conversation.peer.device.fingerprint);
   keyChanged.value = trust === 'changed';
   if (keyChanged.value) {
-    error.value = 'La chiave di sicurezza del contatto è cambiata. Invio bloccato: verifica l’impronta di persona.';
+    error.value = t('keyChanged');
   }
   activeId.value = id;
   const encrypted = await api.messages(id);
@@ -157,15 +183,15 @@ async function sendMessage() {
   socket.emit('message:send', {
     conversationId: activeId.value, clientId, senderDeviceId: localDevice.value.id, recipientDeviceId: peer.id, ...envelope,
   }, (result: { ok: boolean }) => {
-    if (!result.ok) { error.value = 'Messaggio non inviato.'; draft.value = body; }
+    if (!result.ok) { error.value = t('messageFailed'); draft.value = body; }
   });
 }
 
 async function decryptMessage(message: Message): Promise<DecryptedMessage> {
   const peer = activeConversation.value?.peer?.device;
-  if (!localDevice.value || !peer || !activeId.value) return { ...message, body: 'Messaggio non decifrabile', decryptionFailed: true };
+  if (!localDevice.value || !peer || !activeId.value) return { ...message, body: t('undecipherable'), decryptionFailed: true };
   try { return { ...message, body: await decryptText(message, activeId.value, localDevice.value.privateKey, peer) }; }
-  catch { return { ...message, body: 'Messaggio non decifrabile', decryptionFailed: true }; }
+  catch { return { ...message, body: t('undecipherable'), decryptionFailed: true }; }
 }
 
 async function pickContacts() {
@@ -180,7 +206,7 @@ async function discover(emails: string[]) {
   const normalized = emails.map((email) => email.trim().toLowerCase()).filter(Boolean);
   if (!normalized.length) return;
   discovered.value = await api.discover(normalized);
-  if (!discovered.value.length) error.value = 'Nessun utente registrato trovato per queste email.';
+  if (!discovered.value.length) error.value = t('noUsers');
 }
 
 async function discoverManual() {
@@ -200,7 +226,7 @@ async function startConversation(user: User) {
 async function requestPush() {
   if (!config.value) return;
   try { await enablePush(config.value.vapidPublicKey); pushEnabled.value = true; }
-  catch { error.value = 'Notifiche non abilitate. Su iPhone installa prima l’app nella schermata Home.'; }
+  catch { error.value = t('pushFailed'); }
 }
 
 async function logout() {
@@ -218,54 +244,58 @@ async function logout() {
 </script>
 
 <template>
-  <main v-if="loading" class="splash"><img src="/icon.svg" alt=""><p>Caricamento…</p></main>
+  <main v-if="loading" class="splash"><img src="/icon.svg" alt=""><p>{{ t('loading') }}</p></main>
   <main v-else-if="!me" class="login-shell">
     <section class="login-card">
-      <img class="logo" src="/icon.svg" alt="Logo Angara">
-      <p class="eyebrow">SOLO TESTO. SOLO PERSONE SCELTE.</p>
-      <h1>Una chat piccola,<br>senza rumore.</h1>
-      <p>Accedi con Google per scrivere alle persone che conosci. La tua rubrica non viene memorizzata.</p>
+      <img class="logo" src="/icon.svg" :alt="t('brand')">
+      <p class="eyebrow">{{ t('loginEyebrow') }}</p>
+      <h1>{{ t('loginTitle') }}</h1>
+      <p>{{ t('loginText') }}</p>
       <div id="google-sign-in" class="google-button"></div>
+      <button v-if="canInstall" class="install-cta" @click="installApp">{{ t('installPhone') }}</button>
+      <select class="language-select" :value="locale" aria-label="Language" @change="setLocale"><option v-for="item in supportedLocales" :key="item" :value="item">{{ item.toUpperCase() }}</option></select>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
     </section>
   </main>
   <main v-else-if="cryptoError" class="login-shell">
     <section class="login-card">
-      <img class="logo" src="/icon.svg" alt="Logo Angara">
-      <p class="eyebrow">CHIAVE DEL DISPOSITIVO</p>
-      <h1>La cifratura è bloccata.</h1>
+      <img class="logo" src="/icon.svg" :alt="t('brand')">
+      <p class="eyebrow">{{ t('keyEyebrow') }}</p>
+      <h1>{{ t('keyTitle') }}</h1>
       <p>{{ cryptoError }}</p>
-      <p>Angara non può recuperare la chiave dal server: è proprio questa separazione a impedire al server di leggere i messaggi.</p>
-      <button class="primary wide" @click="logout">Esci</button>
+      <p>{{ t('keyText') }}</p>
+      <button class="primary wide" @click="logout">{{ t('logout') }}</button>
     </section>
   </main>
   <main v-else class="app-shell">
     <aside class="sidebar" :class="{ hiddenMobile: activeId }">
       <header class="profile">
         <img :src="me.avatarUrl || '/icon.svg'" alt="" referrerpolicy="no-referrer">
-        <div><strong>{{ me.name }}</strong><span>Disponibile</span></div>
-        <button class="icon-button" title="Esci" @click="logout">↗</button>
+        <div><strong>{{ me.name }}</strong><span>{{ t('available') }}</span></div>
+        <select class="sidebar-language" :value="locale" aria-label="Language" @change="setLocale"><option v-for="item in supportedLocales" :key="item" :value="item">{{ item.toUpperCase() }}</option></select>
+        <button class="icon-button" :title="t('logout')" @click="logout">↗</button>
       </header>
       <div class="sidebar-actions">
-        <button class="primary" @click="showContacts = true">＋ Nuova chat</button>
-        <button v-if="!pushEnabled" class="quiet" @click="requestPush">Abilita notifiche</button>
+        <button class="primary" @click="showContacts = true">＋ {{ t('newChat') }}</button>
+        <button v-if="!pushEnabled" class="quiet" @click="requestPush">{{ t('notifications') }}</button>
+        <button v-if="canInstall" class="quiet install-button" @click="installApp">⇩ {{ t('install') }}</button>
       </div>
-      <nav aria-label="Conversazioni">
+      <nav :aria-label="t('conversations')">
         <button v-for="conversation in conversations" :key="conversation.id" class="conversation" :class="{ active: activeId === conversation.id }" @click="openConversation(conversation.id)">
           <img :src="conversation.peer?.avatarUrl || '/icon.svg'" alt="" referrerpolicy="no-referrer">
-          <span><strong>{{ conversation.peer?.name || 'Conversazione' }}</strong><small>{{ conversation.lastMessage ? 'Messaggio crittografato' : 'Inizia a scrivere…' }}</small></span>
+          <span><strong>{{ conversation.peer?.name || t('conversations') }}</strong><small>{{ conversation.lastMessage ? t('encryptedMessage') : t('startWriting') }}</small></span>
         </button>
-        <p v-if="!conversations.length" class="empty">Nessuna conversazione.<br>Scegli una persona dalla rubrica.</p>
+        <p v-if="!conversations.length" class="empty">{{ t('empty') }}</p>
       </nav>
     </aside>
 
     <section class="chat" :class="{ hiddenMobile: !activeId }">
       <template v-if="activeConversation">
         <header class="chat-header">
-          <button class="back" aria-label="Torna alle conversazioni" @click="closeConversation">‹</button>
+          <button class="back" :aria-label="t('back')" @click="closeConversation">‹</button>
           <img :src="activeConversation.peer?.avatarUrl || '/icon.svg'" alt="" referrerpolicy="no-referrer">
           <strong>{{ activeConversation.peer?.name }}</strong>
-          <button class="security-button" title="Verifica chiavi di sicurezza" @click="showFingerprints = true">◇ E2EE</button>
+          <button class="security-button" :title="t('verifyKeys')" @click="showFingerprints = true">◇ E2EE</button>
         </header>
         <div ref="messageList" class="messages" aria-live="polite">
           <div v-for="message in messages" :key="message.id" class="message" :class="{ mine: message.senderId === me.id, failed: message.decryptionFailed }">
@@ -273,31 +303,31 @@ async function logout() {
           </div>
         </div>
         <form class="composer" @submit.prevent="sendMessage">
-          <textarea v-model="draft" maxlength="4000" rows="1" aria-label="Messaggio" placeholder="Scrivi un messaggio" @keydown.enter.exact.prevent="sendMessage"></textarea>
-          <button :disabled="!draft.trim() || keyChanged || !activeConversation.peer?.device" aria-label="Invia">➤</button>
+          <textarea v-model="draft" maxlength="4000" rows="1" :aria-label="t('message')" :placeholder="t('message')" @keydown.enter.exact.prevent="sendMessage"></textarea>
+          <button :disabled="!draft.trim() || keyChanged || !activeConversation.peer?.device" :aria-label="t('send')">➤</button>
         </form>
       </template>
-      <div v-else class="chat-placeholder"><img src="/icon.svg" alt=""><h2>Scegli una conversazione</h2><p>Sul server restano soltanto messaggi cifrati.</p></div>
+      <div v-else class="chat-placeholder"><img src="/icon.svg" alt=""><h2>{{ t('chooseChat') }}</h2><p>{{ t('serverCiphertext') }}</p></div>
     </section>
 
     <div v-if="showContacts" class="modal-backdrop" @click.self="showContacts = false">
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="contacts-title">
-        <button class="close" aria-label="Chiudi" @click="showContacts = false">×</button>
-        <p class="eyebrow">NUOVA CONVERSAZIONE</p><h2 id="contacts-title">Trova una persona</h2>
-        <p v-if="canPickContacts">Scegli quali contatti condividere. Nessun dato della rubrica viene conservato.</p>
-        <button v-if="canPickContacts" class="primary wide" @click="pickContacts">Apri la rubrica</button>
-        <div class="manual"><label for="email">Oppure cerca per email</label><div><input id="email" v-model="manualEmail" type="email" autocomplete="off" placeholder="nome@esempio.it" @keydown.enter="discoverManual"><button @click="discoverManual">Cerca</button></div></div>
+        <button class="close" :aria-label="t('close')" @click="showContacts = false">×</button>
+        <p class="eyebrow">{{ t('newConversation') }}</p><h2 id="contacts-title">{{ t('findPerson') }}</h2>
+        <p v-if="canPickContacts">{{ t('contactPicker') }}</p>
+        <button v-if="canPickContacts" class="primary wide" @click="pickContacts">{{ t('openContacts') }}</button>
+        <div class="manual"><label for="email">{{ t('orEmail') }}</label><div><input id="email" v-model="manualEmail" type="email" autocomplete="off" placeholder="name@example.com" @keydown.enter="discoverManual"><button @click="discoverManual">{{ t('search') }}</button></div></div>
         <button v-for="user in discovered" :key="user.id" class="found-user" @click="startConversation(user)"><img :src="user.avatarUrl || '/icon.svg'" alt=""><span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span><b>＋</b></button>
       </section>
     </div>
     <div v-if="showFingerprints && activeConversation?.peer?.device && localDevice" class="modal-backdrop" @click.self="showFingerprints = false">
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="keys-title">
-        <button class="close" aria-label="Chiudi" @click="showFingerprints = false">×</button>
-        <p class="eyebrow">CIFRATURA END-TO-END</p><h2 id="keys-title">Chiavi di sicurezza</h2>
-        <p>Confronta queste impronte con il contatto usando un canale diverso, idealmente di persona. Se coincidono, il server non ha sostituito le chiavi.</p>
-        <div class="fingerprint"><strong>Il tuo dispositivo</strong><code>{{ formatFingerprint(localDevice.fingerprint) }}</code></div>
+        <button class="close" :aria-label="t('close')" @click="showFingerprints = false">×</button>
+        <p class="eyebrow">{{ t('fingerprints') }}</p><h2 id="keys-title">{{ t('securityKeys') }}</h2>
+        <p>{{ t('compareKeys') }}</p>
+        <div class="fingerprint"><strong>{{ t('yourDevice') }}</strong><code>{{ formatFingerprint(localDevice.fingerprint) }}</code></div>
         <div class="fingerprint"><strong>{{ activeConversation.peer.name }}</strong><code>{{ formatFingerprint(activeConversation.peer.device.fingerprint) }}</code></div>
-        <p v-if="keyChanged" class="key-warning">La chiave del contatto è cambiata: non inviare messaggi finché non l’hai verificata.</p>
+        <p v-if="keyChanged" class="key-warning">{{ t('keyWarning') }}</p>
       </section>
     </div>
     <p v-if="error" class="toast" role="alert" @click="error = ''">{{ error }}</p>

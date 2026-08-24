@@ -4,6 +4,8 @@ Angara is a small, self-hosted text chat named after the Siberian river flowing 
 
 > **Security boundary:** message text is encrypted and decrypted in the browser. The server persists only authenticated ciphertext. This first E2EE version is single-device and does not implement Signal's Double Ratchet, forward secrecy or post-compromise security. Read [docs/e2ee.md](docs/e2ee.md) before using it for sensitive communication.
 
+Project orientation: [architecture](docs/architecture.md), [development guide](docs/development.md), [operations runbook](docs/operations.md), and [agent router](AGENTS.md).
+
 ## What works
 
 - Google Identity Services login with server-side ID-token verification
@@ -75,6 +77,8 @@ docker compose logs -f app caddy
 ```
 
 Caddy obtains and renews TLS certificates automatically. PostgreSQL is reachable only on the internal Docker network; the application shares only the edge network with Caddy. Do not publish port 5432.
+
+If port 443 is already reserved by a VPN, this configuration serves Angara on `https://chat.example.com:8443`. Keep port 80 available for certificate validation and configure Google OAuth with the exact `:8443` origin.
 
 If the VPS already has a reverse proxy on 80/443, remove the `caddy` service and its published ports, attach `app` to the existing proxy network, and proxy both HTTP and WebSocket traffic to `app:3000`.
 

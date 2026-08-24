@@ -11,6 +11,15 @@ const google = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
 export const api = Router();
 
+api.get('/health', async (_request, response) => {
+  try {
+    await db.$queryRaw`SELECT 1`;
+    return response.status(200).json({ status: 'ok' });
+  } catch {
+    return response.status(503).json({ status: 'unavailable' });
+  }
+});
+
 api.get('/config', (_request, response) => response.json({ googleClientId: config.GOOGLE_CLIENT_ID, vapidPublicKey: config.VAPID_PUBLIC_KEY }));
 
 api.post('/auth/google', authLimit, async (request, response) => {

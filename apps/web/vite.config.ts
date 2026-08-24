@@ -13,7 +13,10 @@ export default defineConfig({
       manifest: {
         name: 'Angara', short_name: 'Angara', description: 'Private text chat for friends',
         theme_color: '#17231d', background_color: '#f5f1e8', display: 'standalone', start_url: '/',
-        icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+        icons: [
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+        ],
       },
       injectManifest: { globPatterns: ['**/*.{js,css,html,svg}'] },
     }),

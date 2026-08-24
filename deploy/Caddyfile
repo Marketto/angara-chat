@@ -1,4 +1,4 @@
-{$APP_HOST} {
+https://{$APP_HOST}:8443 {
   encode zstd gzip
   header {
     Strict-Transport-Security "max-age=31536000; includeSubDomains"

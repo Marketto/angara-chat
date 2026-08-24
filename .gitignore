@@ -4,6 +4,18 @@ coverage/
 .env
 .env.*
 !.env.example
+.envrc
+*.local
+
+# Private credentials, certificates, and deployment secret directories.
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+credentials/
 *.log
 *.zip
 .DS_Store

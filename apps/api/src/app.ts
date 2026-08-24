@@ -26,7 +26,7 @@ app.use(express.json({ limit: '64kb' }));
 app.use(verifyOrigin);
 app.use('/api', api);
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../web/dist');
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 app.use(express.static(webRoot, { index: false, maxAge: '1d' }));
 app.get('/{*path}', (_request, response) => response.sendFile('index.html', { root: webRoot }));
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

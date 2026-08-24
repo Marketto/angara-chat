@@ -1,6 +1,6 @@
 # Contributing
 
-Create a branch from `develop`, keep changes focused, and include tests for behavior changes. Before opening a pull request run:
+Create a branch from `main`, keep changes focused, and include tests for behavior changes. Before opening a pull request run:
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm test && pnpm build
