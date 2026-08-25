@@ -63,7 +63,8 @@ pnpm --filter @angara/api test
 
 1. Work only in the Angara checkout, currently `/opt/angara` on the VPS.
 2. Keep `.env` on the VPS. Its `APP_ORIGIN` and Google OAuth origin must exactly
-   match `https://chat.marketto.it:8443` (or the configured public origin).
+   match `https://chat.marketto.it:8443` (or the configured public origin). Also
+   configure its `/api/auth/google/redirect` URL as the Google redirect URI.
 3. Run `docker compose up -d --build` from the Angara directory.
 4. Verify `https://<host>:8443/api/health`, `docker compose ps`, and recent
    Angara logs. Confirm the Amnezia containers remain healthy afterwards.

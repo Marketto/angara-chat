@@ -21,7 +21,7 @@ declare global {
   interface Window {
     onbeforeinstallprompt?: (event: InstallPromptEvent) => void;
     google?: { accounts: { id: {
-      initialize(options: { client_id: string; callback(response: { credential: string }): void }): void;
+      initialize(options: { client_id: string; callback?: (response: { credential: string }) => void; ux_mode?: 'popup' | 'redirect'; login_uri?: string }): void;
       renderButton(parent: HTMLElement, options: Record<string, string>): void;
     } } };
   }

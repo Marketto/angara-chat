@@ -91,12 +91,8 @@ async function renderGoogleLogin() {
   if (!target || !window.google) return;
   window.google.accounts.id.initialize({
     client_id: config.value.googleClientId,
-    callback: async ({ credential }) => {
-      try {
-        me.value = await api.login(credential);
-        await enterApp();
-      } catch { error.value = t('loginFailed'); }
-    },
+    ux_mode: 'redirect',
+    login_uri: `${window.location.origin}/api/auth/google/redirect`,
   });
   window.google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with' });
 }

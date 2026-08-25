@@ -39,6 +39,9 @@ export async function requireUser(request: Request, response: Response, next: ()
 
 export function verifyOrigin(request: Request, response: Response, next: () => void) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return next();
+  // Google Identity posts its signed credential cross-origin to this redirect endpoint.
+  // The route performs Google’s required double-submit CSRF validation instead.
+  if (request.path === '/api/auth/google/redirect') return next();
   const origin = request.get('origin');
   if (!origin || !safeEqual(origin, config.APP_ORIGIN)) return void response.status(403).json({ error: 'INVALID_ORIGIN' });
   next();

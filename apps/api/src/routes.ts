@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { parse } from 'cookie';
 import { OAuth2Client } from 'google-auth-library';
 import { rateLimit } from 'express-rate-limit';
 import { config } from './config.js';
@@ -25,20 +26,44 @@ api.get('/config', (_request, response) => response.json({ googleClientId: confi
 api.post('/auth/google', authLimit, async (request, response) => {
   const input = googleCredentialSchema.safeParse(request.body);
   if (!input.success) return response.status(400).json({ error: 'INVALID_CREDENTIAL' });
-  const ticket = await google.verifyIdToken({ idToken: input.data.credential, audience: config.GOOGLE_CLIENT_ID });
-  const payload = ticket.getPayload();
-  if (!payload?.sub || !payload.email || !payload.email_verified || !payload.name) {
-    return response.status(401).json({ error: 'UNVERIFIED_GOOGLE_ACCOUNT' });
+  let user;
+  try { user = await googleUser(input.data.credential); }
+  catch { return response.status(401).json({ error: 'UNVERIFIED_GOOGLE_ACCOUNT' }); }
+  await createSession(user.id, response);
+  return response.json(user);
+});
+
+api.post('/auth/google/redirect', authLimit, async (request, response) => {
+  const input = googleCredentialSchema.safeParse(request.body);
+  const csrfCookie = parse(request.headers.cookie ?? '').g_csrf_token;
+  const csrfBody = typeof request.body?.g_csrf_token === 'string' ? request.body.g_csrf_token : undefined;
+  if (!input.success || !csrfCookie || !csrfBody || !safeEqual(csrfCookie, csrfBody)) {
+    return response.status(400).send('Invalid Google sign-in response.');
   }
-  const user = await db.user.upsert({
+  let user;
+  try { user = await googleUser(input.data.credential); }
+  catch { return response.status(401).send('Google sign-in could not be verified.'); }
+  await createSession(user.id, response);
+  return response.redirect(303, '/');
+});
+
+async function googleUser(credential: string) {
+  const ticket = await google.verifyIdToken({ idToken: credential, audience: config.GOOGLE_CLIENT_ID });
+  const payload = ticket.getPayload();
+  if (!payload?.sub || !payload.email || !payload.email_verified || !payload.name) throw new Error('UNVERIFIED_GOOGLE_ACCOUNT');
+  return db.user.upsert({
     where: { googleSub: payload.sub },
     update: { email: payload.email.toLowerCase(), name: payload.name, avatarUrl: payload.picture ?? null },
     create: { googleSub: payload.sub, email: payload.email.toLowerCase(), name: payload.name, avatarUrl: payload.picture ?? null },
     select: { id: true, email: true, name: true, avatarUrl: true },
   });
-  await createSession(user.id, response);
-  return response.json(user);
-});
+}
+
+function safeEqual(left: string, right: string) {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 api.post('/auth/logout', async (request, response) => {
   const token = readSessionToken(request.headers.cookie);

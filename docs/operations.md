@@ -21,7 +21,10 @@ do not publish port 5432.
 When the VPS reserves 443 for a VPN, Angara listens on HTTPS port 8443 while
 Caddy keeps port 80 for ACME HTTP validation. Use an explicit URL such as
 `https://chat.example.com:8443` and set `APP_ORIGIN` and the Google OAuth origin
-with the same port. Do not reassign port 443 or restart the VPN containers.
+with the same port. In Google Auth Platform also register
+`https://chat.example.com:8443/api/auth/google/redirect` as an authorized redirect
+URI: this is the PWA-safe Sign in with Google return endpoint. Do not reassign
+port 443 or restart the VPN containers.
 
 ## Backup and restore rehearsal
 
