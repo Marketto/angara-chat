@@ -14,5 +14,29 @@ updateServiceWorker = registerSW({
 });
 
 export function updateWhenBackendChanges(serverBuildVersion: string) {
-  if (serverBuildVersion !== clientBuildVersion) void registration?.update();
+  if (serverBuildVersion === clientBuildVersion) return;
+
+  let attempts = 0;
+  const forceRefresh = async () => {
+    attempts += 1;
+    try {
+      await registration?.update();
+    } catch {
+      // A temporary network failure must not prevent the forced-refresh fallback.
+    }
+    if (registration?.waiting) {
+      try {
+        await updateServiceWorker?.(true);
+        return;
+      } catch {
+        // Retry below, then fall back to a browser reload.
+      }
+    }
+    if (attempts < 6) {
+      window.setTimeout(() => void forceRefresh(), 500);
+      return;
+    }
+    window.location.reload();
+  };
+  void forceRefresh();
 }
