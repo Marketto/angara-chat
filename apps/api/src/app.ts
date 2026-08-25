@@ -30,8 +30,18 @@ app.use(verifyOrigin);
 app.use('/api', api);
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
-app.use(express.static(webRoot, { index: false, maxAge: '1d' }));
-app.get('/{*path}', (_request, response) => response.sendFile('index.html', { root: webRoot }));
+app.use(express.static(webRoot, {
+  index: false,
+  maxAge: '1y',
+  immutable: true,
+  setHeaders(response, file) {
+    if (file.endsWith('/sw.js') || file.endsWith('/manifest.webmanifest')) response.setHeader('Cache-Control', 'no-cache');
+  },
+}));
+app.get('/{*path}', (_request, response) => {
+  response.setHeader('Cache-Control', 'no-cache');
+  response.sendFile('index.html', { root: webRoot });
+});
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   console.error(error);
   response.status(500).json({ error: 'INTERNAL_ERROR' });
