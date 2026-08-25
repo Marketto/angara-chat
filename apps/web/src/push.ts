@@ -17,3 +17,9 @@ export async function enablePush(vapidPublicKey: string) {
   });
   await api.subscribe(subscription.toJSON());
 }
+
+export async function hasPushSubscription() {
+  if (Notification.permission !== 'granted' || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  const registration = await navigator.serviceWorker.ready;
+  return Boolean(await registration.pushManager.getSubscription());
+}

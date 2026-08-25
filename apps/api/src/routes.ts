@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { parse } from 'cookie';
 import { OAuth2Client } from 'google-auth-library';
 import { rateLimit } from 'express-rate-limit';
@@ -10,6 +10,8 @@ import { contactDiscoverySchema, createConversationSchema, deviceRegistrationSch
 
 const google = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+const OAUTH_STATE_COOKIE = 'chat_google_oauth_state';
+const GOOGLE_REDIRECT_PATH = '/api/auth/google/redirect';
 export const api = Router();
 
 api.get('/health', async (_request, response) => {
@@ -22,6 +24,28 @@ api.get('/health', async (_request, response) => {
 });
 
 api.get('/config', (_request, response) => response.json({ googleClientId: config.GOOGLE_CLIENT_ID, vapidPublicKey: config.VAPID_PUBLIC_KEY, buildVersion: config.BUILD_VERSION }));
+api.get('/auth/google/start', (_request, response) => {
+  const state = randomBytes(32).toString('base64url');
+  response.cookie(OAUTH_STATE_COOKIE, state, { httpOnly: true, secure: config.COOKIE_SECURE, sameSite: 'lax', path: '/', maxAge: 600_000 });
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  for (const [key, value] of Object.entries({ client_id: config.GOOGLE_CLIENT_ID, redirect_uri: `${config.APP_ORIGIN}${GOOGLE_REDIRECT_PATH}`, response_type: 'code', scope: 'openid email profile', state, prompt: 'select_account' })) url.searchParams.set(key, value);
+  return response.redirect(302, url.toString());
+});
+api.get('/auth/google/redirect', authLimit, async (request, response) => {
+  const code = typeof request.query.code === 'string' ? request.query.code : '';
+  const state = typeof request.query.state === 'string' ? request.query.state : '';
+  const expected = parse(request.headers.cookie ?? '')[OAUTH_STATE_COOKIE];
+  response.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+  if (!code || !expected || !safeEqual(expected, state)) return response.redirect(303, '/?auth_error=state');
+  try {
+    const tokens = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code, client_id: config.GOOGLE_CLIENT_ID, client_secret: config.GOOGLE_CLIENT_SECRET, redirect_uri: `${config.APP_ORIGIN}${GOOGLE_REDIRECT_PATH}`, grant_type: 'authorization_code' }) });
+    const body = await tokens.json() as { id_token?: unknown };
+    if (!tokens.ok || typeof body.id_token !== 'string') throw new Error('token');
+    const user = await googleUser(body.id_token);
+    await createSession(user.id, response);
+    return response.redirect(303, '/');
+  } catch { return response.redirect(303, '/?auth_error=google'); }
+});
 
 api.post('/auth/google', authLimit, async (request, response) => {
   const input = googleCredentialSchema.safeParse(request.body);

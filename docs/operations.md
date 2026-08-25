@@ -26,6 +26,11 @@ with the same port. In Google Auth Platform also register
 URI: this is the PWA-safe Sign in with Google return endpoint. Do not reassign
 port 443 or restart the VPN containers.
 
+Use the OAuth web-server flow: retain both `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` only in the VPS `.env`; never commit them. The callback
+exchanges the authorization code server-side and validates a short-lived,
+HTTP-only `state` cookie before creating the normal session.
+
 ## Backup and restore rehearsal
 
 Back up the database with encrypted, access-controlled storage outside the VPS.

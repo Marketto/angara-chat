@@ -5,7 +5,7 @@ import { api } from './api';
 import { contactEmails } from './contacts';
 import { decryptText, encryptText, formatFingerprint } from './crypto';
 import { createLocalDevice, loadLocalDevice, pinPeerKey } from './device-store';
-import { enablePush } from './push';
+import { enablePush, hasPushSubscription } from './push';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
 import type { Conversation, DecryptedMessage, InstallPromptEvent, LocalDevice, Message, PublicConfig, User } from './types';
@@ -49,10 +49,7 @@ onMounted(async () => {
   finally {
     loading.value = false;
   }
-  if (!me.value && config.value) {
-    try { await renderGoogleLogin(); }
-    catch { error.value = t('googleUnavailable'); }
-  }
+  if (!me.value && new URL(location.href).searchParams.has('auth_error')) error.value = t('loginFailed');
 });
 
 onBeforeUnmount(() => {
@@ -106,6 +103,8 @@ async function enterApp() {
       ? t('deviceMissing') : t('cryptoFailed');
     return;
   }
+  try { pushEnabled.value = await hasPushSubscription(); }
+  catch { pushEnabled.value = false; }
   conversations.value = await api.conversations();
   socket?.disconnect();
   socket = io({ withCredentials: true });
@@ -252,7 +251,7 @@ async function logout() {
       <p class="eyebrow">{{ t('loginEyebrow') }}</p>
       <h1>{{ t('loginTitle') }}</h1>
       <p>{{ t('loginText') }}</p>
-      <div id="google-sign-in" class="google-button"></div>
+      <a class="google-button" href="/api/auth/google/start">Continua con Google</a>
       <button v-if="canInstall" class="install-cta" @click="installApp">{{ t('installPhone') }}</button>
       <select class="language-select" :value="locale" aria-label="Language" @change="setLocale"><option v-for="item in supportedLocales" :key="item" :value="item">{{ item.toUpperCase() }}</option></select>
       <p v-if="error" class="error" role="alert">{{ error }}</p>

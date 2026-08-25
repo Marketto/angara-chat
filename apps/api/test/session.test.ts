@@ -10,6 +10,7 @@ beforeAll(async () => {
     APP_ORIGIN: 'http://localhost:5173',
     DATABASE_URL: 'postgresql://chat:test@localhost:5432/chat_test',
     GOOGLE_CLIENT_ID: 'test-client-id.apps.googleusercontent.com',
+    GOOGLE_CLIENT_SECRET: 'test-client-secret',
     VAPID_PUBLIC_KEY: 'test-public-key',
     VAPID_PRIVATE_KEY: 'test-private-key',
     VAPID_SUBJECT: 'mailto:test@example.com',
