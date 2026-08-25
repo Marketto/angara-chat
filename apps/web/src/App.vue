@@ -43,10 +43,13 @@ onMounted(async () => {
     config.value = await api.config();
     me.value = await api.me();
     await enterApp();
-  } catch {
-    await renderGoogleLogin();
-  } finally {
+  } catch { me.value = null; }
+  finally {
     loading.value = false;
+  }
+  if (!me.value && config.value) {
+    try { await renderGoogleLogin(); }
+    catch { error.value = t('googleUnavailable'); }
   }
 });
 
