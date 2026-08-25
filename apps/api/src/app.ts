@@ -20,6 +20,8 @@ app.use(helmet({
       objectSrc: ["'none'"],
     },
   },
+  // Google Identity needs its popup to retain an opener on browsers without FedCM.
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 app.use(express.json({ limit: '64kb' }));

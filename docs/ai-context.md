@@ -23,6 +23,9 @@ encrypted envelopes and routing metadata.
 1. Message plaintext and private ECDH keys never leave the browser.
 2. Each conversation operation requires a session, same-origin protection where
    applicable, and membership authorization.
+   Google Identity intentionally uses `Cross-Origin-Opener-Policy:
+   same-origin-allow-popups` so its non-FedCM popup can return its credential;
+   keep the CSP limited to the documented Google Identity origins.
 3. This is a one-device, TOFU, static-ECDH MVP. Do not claim Signal Protocol,
    forward secrecy, recovery, or multi-device support.
 4. Production secrets are only in the VPS `.env`; never commit or log them.
@@ -77,4 +80,3 @@ pnpm --filter @angara/api test
 | Deployment or VPS work | `docs/operations.md`, `.agents/quality-release.md` |
 | Web/PWA work | `.agents/web-pwa.md` |
 | API/database work | `.agents/api-data.md` |
-
