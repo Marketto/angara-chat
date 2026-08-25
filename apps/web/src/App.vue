@@ -312,7 +312,7 @@ async function logout() {
     </section>
 
     <div v-if="showContacts" class="modal-backdrop" @click.self="showContacts = false">
-      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="contacts-title">
+      <section class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="contacts-title">
         <button class="close" :aria-label="t('close')" @click="showContacts = false">×</button>
         <p class="eyebrow">{{ t('newConversation') }}</p><h2 id="contacts-title">{{ t('findPerson') }}</h2>
         <p v-if="canPickContacts">{{ t('contactPicker') }}</p>
@@ -322,7 +322,7 @@ async function logout() {
       </section>
     </div>
     <div v-if="showFingerprints && activeConversation?.peer?.device && localDevice" class="modal-backdrop" @click.self="showFingerprints = false">
-      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="keys-title">
+      <section class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="keys-title">
         <button class="close" :aria-label="t('close')" @click="showFingerprints = false">×</button>
         <p class="eyebrow">{{ t('fingerprints') }}</p><h2 id="keys-title">{{ t('securityKeys') }}</h2>
         <p>{{ t('compareKeys') }}</p>
