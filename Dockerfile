@@ -1,4 +1,7 @@
 FROM node:24-alpine AS build
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=$BUILD_VERSION
+ENV VITE_BUILD_VERSION=$BUILD_VERSION
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -9,7 +12,9 @@ COPY . .
 RUN pnpm --filter @angara/api db:generate && pnpm build
 
 FROM node:24-alpine AS runtime
+ARG BUILD_VERSION=dev
 ENV NODE_ENV=production
+ENV BUILD_VERSION=$BUILD_VERSION
 RUN corepack enable && addgroup -S chat && adduser -S chat -G chat
 WORKDIR /app
 COPY --from=build /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./

@@ -47,9 +47,15 @@ Before updating, back up the database, review `.env`, and run:
 
 ```bash
 docker compose config
-docker compose up -d --build
+./deploy/deploy.sh
 docker compose ps
 ```
+
+`deploy/deploy.sh` generates a new build ID for every release. The API exposes
+that ID through `/api/config`; an installed PWA compares it to its own build,
+checks the service worker for an update and activates the new precache. A PWA
+must be opened with network access to receive an update; a closed mobile app
+cannot update itself in the background.
 
 For a suspected compromise, preserve relevant non-sensitive logs, rotate exposed
 credentials (OAuth configuration, VAPID keys, database password, and deployment

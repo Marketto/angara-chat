@@ -21,7 +21,7 @@ api.get('/health', async (_request, response) => {
   }
 });
 
-api.get('/config', (_request, response) => response.json({ googleClientId: config.GOOGLE_CLIENT_ID, vapidPublicKey: config.VAPID_PUBLIC_KEY }));
+api.get('/config', (_request, response) => response.json({ googleClientId: config.GOOGLE_CLIENT_ID, vapidPublicKey: config.VAPID_PUBLIC_KEY, buildVersion: config.BUILD_VERSION }));
 
 api.post('/auth/google', authLimit, async (request, response) => {
   const input = googleCredentialSchema.safeParse(request.body);

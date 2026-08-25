@@ -32,7 +32,10 @@ services:
     pids_limit: 100
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
     restart: unless-stopped
     env_file: .env
     environment:

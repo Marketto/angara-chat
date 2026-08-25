@@ -3,6 +3,10 @@ import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string }> };
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') void self.skipWaiting();
+});
+self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });
 
 self.addEventListener('push', (event) => {
   const data = event.data?.json() as { title?: string; body?: string; url?: string; tag?: string } | undefined;

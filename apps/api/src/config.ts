@@ -14,4 +14,5 @@ export const config = z.object({
   VAPID_SUBJECT: z.string().regex(/^mailto:/),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   COOKIE_SECURE: bool.default(true),
+  BUILD_VERSION: z.string().min(1).max(100).default('dev'),
 }).parse(process.env);

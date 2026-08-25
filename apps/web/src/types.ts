@@ -7,7 +7,7 @@ export interface Message {
 }
 export interface DecryptedMessage extends Message { body: string; decryptionFailed?: boolean }
 export interface Conversation { id: string; peer: (User & { device: PublicDevice | null }) | null; lastMessage: { createdAt: string } | null }
-export interface PublicConfig { googleClientId: string; vapidPublicKey: string }
+export interface PublicConfig { googleClientId: string; vapidPublicKey: string; buildVersion: string }
 export interface ContactInfo { name?: string[]; email?: string[]; tel?: string[] }
 export interface InstallPromptEvent extends Event {
   prompt(): Promise<void>

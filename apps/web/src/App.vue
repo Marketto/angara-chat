@@ -7,6 +7,7 @@ import { decryptText, encryptText, formatFingerprint } from './crypto';
 import { createLocalDevice, loadLocalDevice, pinPeerKey } from './device-store';
 import { enablePush } from './push';
 import { locale, supportedLocales, t, type Locale } from './i18n';
+import { updateWhenBackendChanges } from './pwa-update';
 import type { Conversation, DecryptedMessage, InstallPromptEvent, LocalDevice, Message, PublicConfig, User } from './types';
 
 const me = ref<User | null>(null);
@@ -41,6 +42,7 @@ onMounted(async () => {
   window.addEventListener('appinstalled', clearInstallPrompt);
   try {
     config.value = await api.config();
+    updateWhenBackendChanges(config.value.buildVersion);
     me.value = await api.me();
     await enterApp();
   } catch { me.value = null; }
