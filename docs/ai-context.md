@@ -38,8 +38,10 @@ encrypted envelopes and routing metadata.
 - `apps/web/src/i18n.ts` detects the browser language and supports `it`, `en`,
   and `ru`, falling back to English. The in-app selector is intentionally not
   persisted: no session data is stored in browser Web Storage.
-- The chat surface uses a lightweight inline CSS textile pattern. It makes no
-  network request and must remain low contrast behind readable message bubbles.
+- The chat surface randomly selects one of four lightweight inline CSS textile
+  patterns whenever a conversation is opened: Siberian border, Irtysh, steppe,
+  or winter. They make no network request and must remain low contrast behind
+  readable message bubbles. The choice is intentionally not persisted.
 
 ## Development and verification
 

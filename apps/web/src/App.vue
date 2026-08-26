@@ -6,6 +6,7 @@ import { contactEmails } from './contacts';
 import { enablePush, hasPushSubscription } from './push';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
+import { pickChatTheme, type ChatTheme } from './chat-themes';
 import type { Conversation, DecryptedMessage, InstallPromptEvent, Message, PublicConfig, User } from './types';
 
 const me = ref<User | null>(null);
@@ -22,6 +23,7 @@ const manualEmail = ref('');
 const pushEnabled = ref(false);
 const messageList = ref<HTMLElement | null>(null);
 const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
+const chatTheme = ref<ChatTheme>(pickChatTheme());
 const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
 let socket: Socket | null = null;
 
@@ -113,6 +115,7 @@ async function openConversation(id: string) {
   error.value = '';
   const conversation = conversations.value.find((item) => item.id === id);
   if (!conversation) return;
+  chatTheme.value = pickChatTheme();
   activeId.value = id;
   messages.value = await api.messages(id);
   socket?.emit('conversation:join', id);
@@ -228,7 +231,7 @@ async function logout() {
       </nav>
     </aside>
 
-    <section class="chat" :class="{ hiddenMobile: !activeId }">
+    <section class="chat" :class="[{ hiddenMobile: !activeId }, `chat--${chatTheme}`]">
       <template v-if="activeConversation">
         <header class="chat-header">
           <button class="back" :aria-label="t('back')" @click="closeConversation">‹</button>
