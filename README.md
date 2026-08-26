@@ -2,7 +2,10 @@
 
 Angara is a small, self-hosted text chat named after the Siberian river flowing from Lake Baikal. It combines a Vue PWA, Node.js + Socket.IO, PostgreSQL, Google Sign-In, Web Push and privacy-preserving contact discovery.
 
-> **Security boundary:** message text is encrypted and decrypted in the browser. The server persists only authenticated ciphertext. This first E2EE version is single-device and does not implement Signal's Double Ratchet, forward secrecy or post-compromise security. Read [docs/e2ee.md](docs/e2ee.md) before using it for sensitive communication.
+> **Security boundary:** this release is **not end-to-end encrypted**. Message
+> text is protected in transit with TLS but stored as plaintext by the service;
+> the server, database, and their backups can read it. Do not use it for
+> sensitive communication. Read [docs/e2ee.md](docs/e2ee.md) before deployment.
 
 Project orientation: [AI/contributor context](docs/ai-context.md), [architecture](docs/architecture.md), [development guide](docs/development.md), [operations runbook](docs/operations.md), and [agent router](AGENTS.md).
 
@@ -10,10 +13,8 @@ Project orientation: [AI/contributor context](docs/ai-context.md), [architecture
 
 - Google Identity Services login with server-side ID-token verification
 - server-side sessions in `HttpOnly`, `SameSite=Strict`, secure cookies
-- one-to-one text messages encrypted with ECDH P-256, HKDF-SHA-256 and AES-256-GCM
-- non-exportable private device key stored in browser IndexedDB
-- verifiable contact-key fingerprints with trust-on-first-use pinning
-- opaque encrypted envelopes persisted in PostgreSQL
+- one-to-one text messages stored server-side as plaintext
+- multi-device access to the same account and conversation history
 - idempotent message sends and membership checks on every read/write
 - installable Vue PWA with standard Web Push notifications
 - contact discovery by email without storing the address book
@@ -27,13 +28,17 @@ Project orientation: [AI/contributor context](docs/ai-context.md), [architecture
 - The browser contact picker is not universal. It only exposes contacts the user explicitly chooses and may be unavailable on iPhone; manual email search is always available.
 - On iPhone/iPad, push notifications require adding the PWA to the Home Screen first and granting permission from a user action.
 - This project is text-only: no files, voice, calls, groups, read receipts or typing indicators.
-- One Google account currently supports one browser device. Clearing site data loses the private key and makes existing history unreadable.
-- There is no key backup or recovery by design in this version. Install and use the PWA on the intended primary device.
-- Key compromise reveals past messages because the protocol does not yet ratchet keys. This is not Signal Protocol.
+- Message text is available to the service operator, database administrators and
+  anyone with access to database backups. TLS protects transport only.
+- This version does not provide E2EE, forward secrecy, post-compromise security
+  or encryption at rest for message bodies.
 
 ## PostgreSQL or MongoDB?
 
-Angara uses PostgreSQL. Conversation membership, unique device ownership, idempotent message IDs and ordered message history benefit from relational constraints and transactions. MongoDB's document model offers no meaningful advantage because message content is an opaque ciphertext envelope.
+Angara uses PostgreSQL. Conversation membership, idempotent message IDs and
+ordered message history benefit from relational constraints and transactions.
+MongoDB's document model offers no meaningful advantage for this relational chat
+model.
 
 For a minimal VPS, PostgreSQL is also easier to budget: this Compose configuration uses `shared_buffers=64MB`, `max_connections=20`, a five-connection Prisma pool and a 192 MB Node heap cap. MongoDB WiredTiger reserves at least roughly 256 MB for its internal cache and also relies on filesystem cache. If the complete VPS has substantially less than 1 GB RAM, benchmark Amnezia and Angara together before production; SQLite would be the next option to evaluate, not MongoDB.
 
@@ -91,13 +96,18 @@ pnpm test
 pnpm build
 ```
 
-After deployment, test with two separate Google accounts on two devices: install/open the PWA on each primary device, create a chat by email, compare the displayed fingerprints through another channel, exchange messages in both directions, enable notifications, close it, and send another message. Confirm directly in PostgreSQL that the `Message` table contains ciphertext but no plaintext column.
+After deployment, test with two separate Google accounts on two devices: sign in
+to one account on more than one device, create a chat by email, exchange messages
+in both directions, enable notifications, close it, and send another message.
+Confirm that the same account sees its conversation history from each signed-in
+device. Treat PostgreSQL and its backups as sensitive because `Message.body`
+contains plaintext.
 
 ## Secrets and privacy
 
 The repository intentionally contains no IP, domain belonging to the operator, OAuth credential, VAPID private key, database password, user data or VPS configuration. `.env*` files are ignored except for the placeholder `.env.example`.
 
-Contact emails are normalized, compared to registered users and discarded at the end of the request. They are not written to the database. Google ID tokens are verified and then discarded; the app stores the stable Google `sub`, email, display name and avatar URL. Push notifications contain only a generic “encrypted message” notice.
+Contact emails are normalized, compared to registered users and discarded at the end of the request. They are not written to the database. Google ID tokens are verified and then discarded; the app stores the stable Google `sub`, email, display name and avatar URL. Push notifications contain only a generic “new message” notice.
 
 See [SECURITY.md](SECURITY.md) before exposing the service to users.
 

@@ -6,13 +6,14 @@ import { rateLimit } from 'express-rate-limit';
 import { config } from './config.js';
 import { db } from './db.js';
 import { createSession, hashToken, readSessionToken, requireUser, sessionUser, SESSION_COOKIE } from './session.js';
-import { contactDiscoverySchema, createConversationSchema, deviceRegistrationSchema, googleCredentialSchema, pushSubscriptionSchema } from './schemas.js';
+import { clientLogSchema, contactDiscoverySchema, createConversationSchema, googleCredentialSchema, pushSubscriptionSchema } from './schemas.js';
 
 const google = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
 const OAUTH_STATE_COOKIE = 'chat_google_oauth_state';
 const GOOGLE_REDIRECT_PATH = '/api/auth/google/redirect';
 export const api = Router();
+const clientLogs: Array<{ at: number; userId: string; code: string; context?: string }> = [];
 
 api.get('/health', async (_request, response) => {
   try {
@@ -99,38 +100,18 @@ api.post('/auth/logout', async (request, response) => {
 });
 
 api.use(requireUser);
-api.get('/me', (_request, response) => response.json(response.locals.user));
-
-api.get('/crypto/device', async (_request, response) => {
-  const device = await db.device.findUnique({
-    where: { userId: response.locals.user.id },
-    select: { id: true, publicKey: true, fingerprint: true },
-  });
-  return response.json(device);
-});
-
-api.post('/crypto/device', async (request, response) => {
-  const input = deviceRegistrationSchema.safeParse(request.body);
-  if (!input.success) return response.status(400).json({ error: 'INVALID_DEVICE_KEY' });
-  const existing = await db.device.findUnique({ where: { userId: response.locals.user.id } });
-  const publicKey = {
-    kty: 'EC', crv: 'P-256', x: input.data.publicKey.x, y: input.data.publicKey.y, ext: true, key_ops: [] as string[],
-  };
-  const fingerprint = createHash('sha256')
-    .update(`P-256:${publicKey.x}:${publicKey.y}`)
-    .digest('hex');
-  if (existing) {
-    if (existing.id === input.data.id && existing.fingerprint === fingerprint) {
-      return response.json({ id: existing.id, publicKey: existing.publicKey, fingerprint: existing.fingerprint });
-    }
-    return response.status(409).json({ error: 'DEVICE_ALREADY_REGISTERED' });
+api.post('/client-logs', (request, response) => {
+  const input = clientLogSchema.safeParse(request.body);
+  if (!input.success) return response.status(400).json({ error: 'INVALID_LOG' });
+  const cutoff = Date.now() - 16 * 60 * 60 * 1000;
+  while (clientLogs.length > 0 && clientLogs[0]!.at < cutoff) clientLogs.shift();
+  if (clientLogs.length < 1000) {
+    const entry = { at: Date.now(), userId: response.locals.user.id, code: input.data.code };
+    clientLogs.push(input.data.context ? { ...entry, context: input.data.context } : entry);
   }
-  const device = await db.device.create({
-    data: { id: input.data.id, userId: response.locals.user.id, publicKey, fingerprint },
-    select: { id: true, publicKey: true, fingerprint: true },
-  });
-  return response.status(201).json(device);
+  return response.status(204).end();
 });
+api.get('/me', (_request, response) => response.json(response.locals.user));
 
 api.post('/contacts/discover', async (request, response) => {
   const input = contactDiscoverySchema.safeParse(request.body);
@@ -147,7 +128,7 @@ api.get('/conversations', async (_request, response) => {
     where: { members: { some: { userId: response.locals.user.id } } },
     select: {
       id: true,
-      members: { where: { userId: { not: response.locals.user.id } }, select: { user: { select: { id: true, name: true, avatarUrl: true, devices: { take: 1, select: { id: true, publicKey: true, fingerprint: true } } } } } },
+      members: { where: { userId: { not: response.locals.user.id } }, select: { user: { select: { id: true, name: true, avatarUrl: true } } } },
       messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
     },
   });
@@ -155,7 +136,7 @@ api.get('/conversations', async (_request, response) => {
     const peer = item.members[0]?.user;
     return {
       id: item.id,
-      peer: peer ? { id: peer.id, name: peer.name, avatarUrl: peer.avatarUrl, device: peer.devices[0] ?? null } : null,
+      peer: peer ? { id: peer.id, name: peer.name, avatarUrl: peer.avatarUrl } : null,
       lastMessage: item.messages[0] ?? null,
     };
   }));
@@ -185,7 +166,7 @@ api.get('/conversations/:id/messages', async (request, response) => {
   if (!membership) return response.status(404).json({ error: 'CONVERSATION_NOT_FOUND' });
   const messages = await db.message.findMany({
     where: { conversationId }, orderBy: { createdAt: 'asc' }, take: 100,
-    select: { id: true, clientId: true, senderId: true, senderDeviceId: true, recipientDeviceId: true, ciphertext: true, iv: true, version: true, createdAt: true },
+    select: { id: true, clientId: true, senderId: true, body: true, createdAt: true },
   });
   return response.json(messages);
 });

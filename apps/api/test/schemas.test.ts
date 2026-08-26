@@ -1,28 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { contactDiscoverySchema, deviceRegistrationSchema, encryptedMessageSchema, pushSubscriptionSchema } from '../src/schemas.js';
+import { contactDiscoverySchema, plaintextMessageSchema, pushSubscriptionSchema } from '../src/schemas.js';
 
-describe('encrypted message schema', () => {
-  it('accepts a versioned opaque envelope', () => {
-    expect(encryptedMessageSchema.safeParse({
-      conversationId: 'conversation-1', clientId: crypto.randomUUID(),
-      senderDeviceId: crypto.randomUUID(), recipientDeviceId: crypto.randomUUID(),
-      iv: 'MTIzNDU2Nzg5MDEy', ciphertext: 'Y2lwaGVydGV4dC13aXRoLXRhZw', version: 1,
-    }).success).toBe(true);
-  });
-  it('rejects plaintext-shaped and oversized payloads', () => {
-    expect(encryptedMessageSchema.safeParse({ conversationId: 'c', clientId: crypto.randomUUID(), body: 'ciao' }).success).toBe(false);
-    expect(encryptedMessageSchema.safeParse({
-      conversationId: 'c', clientId: crypto.randomUUID(), senderDeviceId: crypto.randomUUID(), recipientDeviceId: crypto.randomUUID(),
-      iv: 'MTIzNDU2Nzg5MDEy', ciphertext: 'x'.repeat(24_001), version: 1,
-    }).success).toBe(false);
-  });
-});
-
-describe('device registration schema', () => {
-  it('only accepts P-256 public keys and never a private component', () => {
-    const base = { id: crypto.randomUUID(), publicKey: { kty: 'EC', crv: 'P-256', x: 'a'.repeat(43), y: 'b'.repeat(43), ext: true } };
-    expect(deviceRegistrationSchema.safeParse(base).success).toBe(true);
-    expect(deviceRegistrationSchema.safeParse({ ...base, publicKey: { ...base.publicKey, d: 'private' } }).success).toBe(false);
+describe('plaintext message schema', () => {
+  it('accepts bounded text and rejects blank or oversized bodies', () => {
+    expect(plaintextMessageSchema.safeParse({ conversationId: 'conversation-1', clientId: crypto.randomUUID(), body: 'ciao' }).success).toBe(true);
+    expect(plaintextMessageSchema.safeParse({ conversationId: 'c', clientId: crypto.randomUUID(), body: ' '.repeat(4001) }).success).toBe(false);
   });
 });
 

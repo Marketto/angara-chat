@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { io, type Socket } from 'socket.io-client';
 import { api } from './api';
 import { contactEmails } from './contacts';
-import { decryptText, encryptText, formatFingerprint } from './crypto';
-import { createLocalDevice, loadLocalDevice, pinPeerKey } from './device-store';
 import { enablePush, hasPushSubscription } from './push';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
-import type { Conversation, DecryptedMessage, InstallPromptEvent, LocalDevice, Message, PublicConfig, User } from './types';
+import type { Conversation, DecryptedMessage, InstallPromptEvent, Message, PublicConfig, User } from './types';
 
 const me = ref<User | null>(null);
 const config = ref<PublicConfig | null>(null);
@@ -23,10 +21,6 @@ const discovered = ref<User[]>([]);
 const manualEmail = ref('');
 const pushEnabled = ref(false);
 const messageList = ref<HTMLElement | null>(null);
-const localDevice = shallowRef<LocalDevice | null>(null);
-const cryptoError = ref('');
-const keyChanged = ref(false);
-const showFingerprints = ref(false);
 const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
 const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
 let socket: Socket | null = null;
@@ -97,12 +91,6 @@ async function renderGoogleLogin() {
 }
 
 async function enterApp() {
-  try { await ensureCryptoDevice(); }
-  catch (caught) {
-    cryptoError.value = caught instanceof Error && caught.message === 'DEVICE_KEY_MISSING'
-      ? t('deviceMissing') : t('cryptoFailed');
-    return;
-  }
   try { pushEnabled.value = await hasPushSubscription(); }
   catch { pushEnabled.value = false; }
   conversations.value = await api.conversations();
@@ -110,7 +98,7 @@ async function enterApp() {
   socket = io({ withCredentials: true });
   socket.on('message:new', async (message: Message) => {
     if (message.conversationId === activeId.value && !messages.value.some(({ id }) => id === message.id)) {
-      messages.value.push(await decryptMessage(message));
+      messages.value.push(message);
       await scrollToBottom();
     }
     void refreshConversations();
@@ -119,39 +107,14 @@ async function enterApp() {
   if (fromUrl && conversations.value.some(({ id }) => id === fromUrl)) await openConversation(fromUrl);
 }
 
-async function ensureCryptoDevice() {
-  if (!me.value) throw new Error('UNAUTHENTICATED');
-  const [remote, stored] = await Promise.all([api.device(), loadLocalDevice(me.value.id)]);
-  if (remote && stored) {
-    if (remote.id !== stored.id || remote.fingerprint !== stored.fingerprint) throw new Error('DEVICE_KEY_MISMATCH');
-    localDevice.value = stored;
-    return;
-  }
-  if (remote && !stored) throw new Error('DEVICE_KEY_MISSING');
-  const created = stored ?? await createLocalDevice(me.value.id);
-  const registered = await api.registerDevice({ id: created.id, publicKey: created.publicKey });
-  if (registered.fingerprint !== created.fingerprint) throw new Error('DEVICE_KEY_MISMATCH');
-  localDevice.value = created;
-}
-
 async function refreshConversations() { conversations.value = await api.conversations(); }
 
 async function openConversation(id: string) {
   error.value = '';
   const conversation = conversations.value.find((item) => item.id === id);
-  if (!conversation?.peer?.device) {
-    error.value = t('peerNeedsDevice');
-    return;
-  }
-  if (!me.value) return;
-  const trust = await pinPeerKey(me.value.id, conversation.peer.id, conversation.peer.device.fingerprint);
-  keyChanged.value = trust === 'changed';
-  if (keyChanged.value) {
-    error.value = t('keyChanged');
-  }
+  if (!conversation) return;
   activeId.value = id;
-  const encrypted = await api.messages(id);
-  messages.value = await Promise.all(encrypted.map(decryptMessage));
+  messages.value = await api.messages(id);
   socket?.emit('conversation:join', id);
   history.replaceState({}, '', `/?conversation=${encodeURIComponent(id)}`);
   await scrollToBottom();
@@ -169,30 +132,14 @@ async function scrollToBottom() {
 
 async function sendMessage() {
   const body = draft.value.trim();
-  const peer = activeConversation.value?.peer?.device;
-  if (!body || !activeId.value || !socket || !localDevice.value || !me.value || !peer || keyChanged.value) return;
+  if (!body || !activeId.value || !socket) return;
   const clientId = crypto.randomUUID();
-  const envelope = await encryptText(body, localDevice.value.privateKey, peer, {
-    conversationId: activeId.value,
-    clientId,
-    senderId: me.value.id,
-    senderDeviceId: localDevice.value.id,
-    recipientDeviceId: peer.id,
-  });
   draft.value = '';
-  socket.emit('message:send', {
-    conversationId: activeId.value, clientId, senderDeviceId: localDevice.value.id, recipientDeviceId: peer.id, ...envelope,
-  }, (result: { ok: boolean }) => {
+  socket.emit('message:send', { conversationId: activeId.value, clientId, body }, (result: { ok: boolean }) => {
     if (!result.ok) { error.value = t('messageFailed'); draft.value = body; }
   });
 }
 
-async function decryptMessage(message: Message): Promise<DecryptedMessage> {
-  const peer = activeConversation.value?.peer?.device;
-  if (!localDevice.value || !peer || !activeId.value) return { ...message, body: t('undecipherable'), decryptionFailed: true };
-  try { return { ...message, body: await decryptText(message, activeId.value, localDevice.value.privateKey, peer) }; }
-  catch { return { ...message, body: t('undecipherable'), decryptionFailed: true }; }
-}
 
 async function pickContacts() {
   if (!navigator.contacts) return;
@@ -212,6 +159,11 @@ async function discover(emails: string[]) {
 async function discoverManual() {
   await discover([manualEmail.value]);
   manualEmail.value = '';
+}
+
+async function openContacts() {
+  try { showContacts.value = true; }
+  catch { void api.clientLog('CONTACTS_MODAL_OPEN_FAILED'); error.value = t('loginFailed'); }
 }
 
 async function startConversation(user: User) {
@@ -236,9 +188,6 @@ async function logout() {
   activeId.value = null;
   conversations.value = [];
   messages.value = [];
-  localDevice.value = null;
-  keyChanged.value = false;
-  cryptoError.value = '';
   await renderGoogleLogin();
 }
 </script>
@@ -257,16 +206,6 @@ async function logout() {
       <p v-if="error" class="error" role="alert">{{ error }}</p>
     </section>
   </main>
-  <main v-else-if="cryptoError" class="login-shell">
-    <section class="login-card">
-      <img class="logo" src="/icon.svg" :alt="t('brand')">
-      <p class="eyebrow">{{ t('keyEyebrow') }}</p>
-      <h1>{{ t('keyTitle') }}</h1>
-      <p>{{ cryptoError }}</p>
-      <p>{{ t('keyText') }}</p>
-      <button class="primary wide" @click="logout">{{ t('logout') }}</button>
-    </section>
-  </main>
   <main v-else class="app-shell">
     <aside class="sidebar" :class="{ hiddenMobile: activeId }">
       <header class="profile">
@@ -276,7 +215,7 @@ async function logout() {
         <button class="icon-button" :title="t('logout')" @click="logout">↗</button>
       </header>
       <div class="sidebar-actions">
-        <button class="primary" @click="showContacts = true">＋ {{ t('newChat') }}</button>
+        <button class="primary" @click="openContacts">＋ {{ t('newChat') }}</button>
         <button v-if="!pushEnabled" class="quiet" @click="requestPush">{{ t('notifications') }}</button>
         <button v-if="canInstall" class="quiet install-button" @click="installApp">⇩ {{ t('install') }}</button>
       </div>
@@ -295,7 +234,6 @@ async function logout() {
           <button class="back" :aria-label="t('back')" @click="closeConversation">‹</button>
           <img :src="activeConversation.peer?.avatarUrl || '/icon.svg'" alt="" referrerpolicy="no-referrer">
           <strong>{{ activeConversation.peer?.name }}</strong>
-          <button class="security-button" :title="t('verifyKeys')" @click="showFingerprints = true">◇ E2EE</button>
         </header>
         <div ref="messageList" class="messages" aria-live="polite">
           <div v-for="message in messages" :key="message.id" class="message" :class="{ mine: message.senderId === me.id, failed: message.decryptionFailed }">
@@ -304,7 +242,7 @@ async function logout() {
         </div>
         <form class="composer" @submit.prevent="sendMessage">
           <textarea v-model="draft" maxlength="4000" rows="1" :aria-label="t('message')" :placeholder="t('message')" @keydown.enter.exact.prevent="sendMessage"></textarea>
-          <button :disabled="!draft.trim() || keyChanged || !activeConversation.peer?.device" :aria-label="t('send')">➤</button>
+          <button :disabled="!draft.trim()" :aria-label="t('send')">➤</button>
         </form>
       </template>
       <div v-else class="chat-placeholder"><img src="/icon.svg" alt=""><h2>{{ t('chooseChat') }}</h2><p>{{ t('serverCiphertext') }}</p></div>
@@ -318,16 +256,6 @@ async function logout() {
         <button v-if="canPickContacts" class="primary wide" @click="pickContacts">{{ t('openContacts') }}</button>
         <div class="manual"><label for="email">{{ t('orEmail') }}</label><div><input id="email" v-model="manualEmail" type="email" autocomplete="off" placeholder="name@example.com" @keydown.enter="discoverManual"><button @click="discoverManual">{{ t('search') }}</button></div></div>
         <button v-for="user in discovered" :key="user.id" class="found-user" @click="startConversation(user)"><img :src="user.avatarUrl || '/icon.svg'" alt=""><span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span><b>＋</b></button>
-      </section>
-    </div>
-    <div v-if="showFingerprints && activeConversation?.peer?.device && localDevice" class="modal-backdrop" @click.self="showFingerprints = false">
-      <section class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="keys-title">
-        <button class="close" :aria-label="t('close')" @click="showFingerprints = false">×</button>
-        <p class="eyebrow">{{ t('fingerprints') }}</p><h2 id="keys-title">{{ t('securityKeys') }}</h2>
-        <p>{{ t('compareKeys') }}</p>
-        <div class="fingerprint"><strong>{{ t('yourDevice') }}</strong><code>{{ formatFingerprint(localDevice.fingerprint) }}</code></div>
-        <div class="fingerprint"><strong>{{ activeConversation.peer.name }}</strong><code>{{ formatFingerprint(activeConversation.peer.device.fingerprint) }}</code></div>
-        <p v-if="keyChanged" class="key-warning">{{ t('keyWarning') }}</p>
       </section>
     </div>
     <p v-if="error" class="toast" role="alert" @click="error = ''">{{ error }}</p>

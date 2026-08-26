@@ -4,14 +4,21 @@ This file is the entry point for coding agents working in this repository. Route
 each task to the smallest specialist scope below, read that agent's instructions
 before editing, and keep one agent responsible for each file at a time.
 
+For CR, bugfix, implementation, deployment, and product-analysis work, use
+[`agent-skills/task-reporting/SKILL.md`](agent-skills/task-reporting/SKILL.md)
+and follow [`docs/agent-workflow.md`](docs/agent-workflow.md). Load only the relevant
+instructions and artifacts; report measurable progress at start, milestones,
+plan changes, and handoff.
+Once authorized, continue work autonomously unless an external blocker, a
+required user decision, or a permission boundary requires a pause.
+
 ## Project at a glance
 
-Angara is a pnpm workspace for a self-hosted, one-to-one encrypted text chat:
+Angara is a pnpm workspace for a self-hosted, one-to-one text chat:
 
-- `apps/web`: Vue 3 + Vite PWA. It creates and holds the non-exportable device
-  private key and performs all message encryption/decryption.
+- `apps/web`: Vue 3 + Vite PWA client.
 - `apps/api`: Express 5 + Socket.IO API. It verifies Google login, manages
-  sessions, authorizes requests, and persists opaque encrypted envelopes.
+  sessions, authorizes requests, and persists chat text.
 - `apps/api/prisma`: PostgreSQL schema and migrations.
 - `deploy`, `Dockerfile`, `docker-compose.yml`: production image, Caddy TLS,
   and the constrained Compose deployment.
@@ -71,12 +78,11 @@ and `COOKIE_SECURE=false`.
 
 ## Non-negotiable invariants
 
-- Message plaintext and private device keys stay in the browser. PostgreSQL
-  stores ciphertext, IV, version, and routing metadata only.
+- Message text is delivered over TLS and persisted by PostgreSQL; do not claim
+  end-to-end encryption or server-blind storage.
 - Every HTTP and socket operation that accesses a conversation verifies session,
   origin where applicable, and membership.
-- Device keys are single-device and TOFU-pinned. Do not claim forward secrecy,
-  recovery, multi-device support, or Signal Protocol properties.
+- Accounts support multiple browser devices with shared server-side history.
 - Production secrets live only in deployment configuration. Keep PostgreSQL off
   the public network and preserve Caddy's HTTPS/WebSocket proxy behavior.
 

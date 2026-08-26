@@ -1,59 +1,56 @@
-# Angara E2EE protocol v1
+# Message privacy and encryption status
 
 ## Scope
 
-Version 1 prevents the normal Node.js application, PostgreSQL database, push provider and database backups from reading message text. It is designed as a small, understandable single-device MVP, not as a new replacement for Signal Protocol.
+The current Angara release does **not** implement end-to-end encryption (E2EE).
+It is a conventional authenticated web chat with multi-device access: users can
+sign in from multiple browsers or devices and see the same message history.
 
-## Device identity
+Messages travel over HTTPS/WebSocket TLS, but the Node.js application stores
+their plaintext bodies in PostgreSQL. The application server, database
+administrators, database backups, and anyone who compromises those systems can
+read message text. Do not use this release for communications that require E2EE
+or confidentiality from the service operator.
 
-On first authenticated use, the browser generates an ECDH P-256 key pair with Web Crypto. The public JWK and its SHA-256 fingerprint are registered on the server. The private key is immediately re-imported as a non-exportable `CryptoKey` and stored in IndexedDB. The server schema permits one device per user.
+## Authentication and device access
 
-The fingerprint is:
+Google authentication establishes a server-side session in a secure, `HttpOnly`
+cookie. There are no device keys, key fingerprints, trust-on-first-use checks, or
+device-linking flows. Clearing browser data does not make stored conversation
+history unreadable; signing in again restores access to the account history.
 
-```text
-SHA-256(UTF8("P-256:" || publicJwk.x || ":" || publicJwk.y))
-```
+## Message storage and delivery
 
-The client pins the first observed fingerprint for each contact locally. A later change blocks sending. Users should compare fingerprints out of band because trust on first use cannot detect substitution before the first observation.
+The client sends a UTF-8 message body to the API over TLS. The server validates
+the authenticated sender and conversation membership, stores `body`, sender ID,
+client message ID, and timestamps, then relays the body to authorized
+conversation members. The `(conversationId, clientId)` constraint keeps retried
+sends idempotent.
 
-## Message encryption
+TLS protects the connection in transit but does not encrypt the message body from
+the application server or database. Push notifications remain generic and do not
+include a message preview.
 
-For each one-to-one conversation, both clients derive the same 256-bit ECDH secret from their device keys. A conversation-specific AES-256-GCM key is derived with:
-
-```text
-salt = SHA-256(UTF8("angara:conversation:" || conversationId))
-info = UTF8("angara-message-v1")
-key  = HKDF-SHA-256(ECDH-secret, salt, info, 32 bytes)
-```
-
-Every message uses a fresh random 96-bit IV. AES-GCM authenticates both the UTF-8 message body and this additional data:
-
-```json
-[1, "conversationId", "clientId", "senderUserId", "senderDeviceId", "recipientDeviceId"]
-```
-
-The server validates conversation membership and device ownership, then stores only `ciphertext`, `iv`, `version`, IDs and timestamps. Changing the ciphertext, IV or authenticated routing context causes decryption to fail.
-
-## What the server can observe
+## What the service can observe
 
 - Google account identity and profile fields
-- conversation participants
-- device public keys and fingerprints
-- sender/recipient device IDs, timestamps and ciphertext sizes
-- online presence implicit in socket connections
+- conversation participants and plaintext message bodies
+- sender IDs, timestamps and online presence implicit in socket connections
 - push subscription endpoints
 - network metadata available to the VPS
 
-Push payloads deliberately contain no message preview.
-
 ## Security limitations
 
-- No Double Ratchet, forward secrecy or post-compromise recovery.
-- One device per user; no device linking or encrypted key backup.
-- Loss of IndexedDB means loss of access to message history.
-- Trust on first use requires manual fingerprint comparison for server-key-substitution detection.
-- A compromised web server can serve a malicious future client bundle. Signed native clients or reproducible independently hosted bundles provide a stronger delivery boundary.
-- Message length, timing and participants are not hidden.
-- The design has not received an independent cryptographic audit.
+- The server and database can read message text; database-only compromise exposes
+  stored messages.
+- Backups must be encrypted and access controlled because they contain plaintext
+  message bodies.
+- TLS does not protect messages from the service operator or a compromised VPS.
+- Message bodies, lengths, timing and participants are not hidden from the
+  service.
+- This design is not Signal Protocol and has no forward secrecy,
+  post-compromise security, encrypted device backup, or independently audited
+  E2EE protocol.
 
-The official `libsignal` implementation includes the Double Ratchet but states that use outside Signal is unsupported, while the former browser JavaScript implementation is archived. A production upgrade should therefore select a maintained, browser-compatible, auditable protocol implementation and cover prekeys, out-of-order delivery, skipped-key limits, multi-device Sesame-style session management and migrations before claiming Signal-equivalent security.
+An E2EE future release would require a new, audited protocol design and a clear
+migration strategy before any E2EE claim is made.

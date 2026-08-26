@@ -28,8 +28,6 @@ model Device {
   fingerprint       String
   createdAt         DateTime  @default(now())
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sentMessages      Message[] @relation("SenderDevice")
-  receivedMessages  Message[] @relation("RecipientDevice")
 }
 
 model Session {
@@ -67,21 +65,13 @@ model Message {
   clientId       String
   conversationId String
   senderId       String
-  senderDeviceId String
-  recipientDeviceId String
-  ciphertext     String       @db.Text
-  iv             String       @db.VarChar(32)
-  version        Int          @default(1)
+  body           String       @db.Text
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  senderDevice   Device       @relation("SenderDevice", fields: [senderDeviceId], references: [id], onDelete: Restrict)
-  recipientDevice Device      @relation("RecipientDevice", fields: [recipientDeviceId], references: [id], onDelete: Restrict)
 
   @@unique([conversationId, clientId])
   @@index([conversationId, createdAt])
-  @@index([senderDeviceId])
-  @@index([recipientDeviceId])
 }
 
 model PushSubscription {

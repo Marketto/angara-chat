@@ -15,15 +15,28 @@
 
 This release protects sessions against JavaScript access, checks same-origin state-changing requests, rate-limits login, verifies Google ID tokens on the server, validates input and authorizes conversation membership.
 
-Message content is encrypted in the browser using a per-device ECDH P-256 key, HKDF-SHA-256 and AES-256-GCM. PostgreSQL stores ciphertext and authenticated routing metadata, not plaintext. A database-only compromise does not reveal message text without a device key.
+Message content is protected in transit by HTTPS/WebSocket TLS, but it is stored
+as plaintext in PostgreSQL. The application server, database administrators, and
+a database-only compromise can read message text. Database backups therefore
+contain sensitive plaintext and require encryption, access control, retention,
+and restoration testing.
 
-The server still sees metadata: accounts, participants, device public keys, timestamps, ciphertext sizes, IP-level traffic and push endpoints. Trust on first use cannot detect a malicious server that substitutes a key before the first fingerprint comparison. Users must compare fingerprints through a separate trusted channel.
+The server sees accounts, participants, plaintext message content, timestamps,
+online presence implicit in socket connections, IP-level traffic and push
+endpoints. Push payloads remain generic and contain no message preview.
 
-This is a web application: a fully compromised VPS can serve modified JavaScript that captures future plaintext or invokes a non-exportable key while the app is open. A non-exportable `CryptoKey` prevents direct key extraction but cannot make a hostile client bundle safe.
+This is a web application: a fully compromised VPS can serve modified JavaScript
+and can read stored message text. The current design provides no confidentiality
+from the service operator.
 
-This version supports one device per account and has no key backup. Clearing browser storage or losing the device makes existing history permanently unreadable. Static ECDH does not provide forward secrecy or post-compromise security: theft of the device private key can decrypt past stored messages.
+The same account can be used from multiple devices; all authenticated sessions
+access the same server-stored history. There are no device keys or key recovery
+flows in this release.
 
-For higher-risk use, migrate to an audited asynchronous protocol with prekeys and Double Ratchet/PQ ratchet semantics, signed reproducible clients, multi-device session management, recovery design, abuse controls, account deletion/export, retention controls and an independent security review. See [docs/e2ee.md](docs/e2ee.md).
+For higher-risk use, do not rely on this release for message confidentiality.
+Before claiming E2EE, adopt an audited protocol and design multi-device key
+management, recovery, retention, account deletion/export, abuse controls and an
+independent security review. See [docs/e2ee.md](docs/e2ee.md).
 
 ## Reporting a vulnerability
 
