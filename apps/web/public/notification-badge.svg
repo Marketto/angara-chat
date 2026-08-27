@@ -1,7 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Angara notification badge">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Angara notification badge">
   <g fill="#fff">
-    <path d="M108 379h296v34H108zM130 352h252v28H130zM151 236h210v116H151z"/>
-    <path d="M180 198h42v-70h-42zm110 0h42v-70h-42zM235 198h42V94h-42z"/>
-    <path d="M170 128h62l-31-58zm110 0h62l-31-58zM225 94h62l-31-58z"/>
+    <path d="M48 9 38 24h20L48 9Zm-20 12-8 12h16l-8-12Zm40 0-8 12h16L68 21Z"/>
+    <path d="M44 23h8v17h-8zM25 31h6v10h-6zM65 31h6v10h-6z"/>
+    <path d="M24 39h48l7 9H17l7-9Z"/>
+    <path d="M20 48h12v22H20zM42 48h12v22H42zM64 48h12v22H64z"/>
+    <path d="M15 70h66v8H15zM22 78h52v6H22z"/>
   </g>
 </svg>

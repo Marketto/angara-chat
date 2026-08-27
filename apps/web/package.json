@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite --host 0.0.0.0",
+    "generate:notification-badge": "node scripts/generate-notification-badge.mjs",
     "lint": "eslint src",
     "test": "vitest run --coverage",
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.sw.json"

@@ -46,7 +46,7 @@ export function attachSocket(server: HttpServer) {
     next();
   });
   io.on('connection', async (socket) => {
-    const user = socket.data.user as { id: string; name: string };
+    const user = socket.data.user as { id: string; name: string; avatarUrl: string | null };
     await socket.join(`user:${user.id}`);
     const memberships = await db.conversationMember.findMany({ where: { userId: user.id }, select: { conversationId: true } });
     memberships.forEach(({ conversationId }) => socket.join(conversationRoom(conversationId)));
@@ -76,7 +76,7 @@ export function attachSocket(server: HttpServer) {
         if (persisted.kind === 'retry') return acknowledge({ ok: true, message });
         io.to(conversationRoom(input.data.conversationId)).emit('message:new', message);
         acknowledge({ ok: true, message });
-        void notifyConversation(input.data.conversationId, user.id, user.name)
+        void notifyConversation(input.data.conversationId, user.id, user.name, user.avatarUrl)
           .catch(() => console.error('Failed to send conversation push'));
       } catch (error) {
         console.error('Failed to persist message', error);

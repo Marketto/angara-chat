@@ -65,7 +65,10 @@ cannot update itself in the background.
 After a chat-delivery release, smoke-test with two signed-in devices: send two
 messages rapidly and confirm each appears once, then put the receiving PWA in
 the background (including a locked display) and confirm the generic push is
-shown. Logging out on one device must not disable push on the other.
+shown. The sender name should be the emphasized notification title, the sender
+avatar should be the main icon when available, and the monochrome Angara badge
+must not render as a solid square. Logging out on one device must not disable
+push on the other.
 If a push provider accepts delivery but a device receives only payload-free test
 notifications, use **Repair notifications** on that device to replace its stale
 endpoint and payload-encryption keys without affecting other devices. The client

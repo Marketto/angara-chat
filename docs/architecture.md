@@ -36,8 +36,9 @@ browser's endpoint so other signed-in devices keep receiving notifications. Sock
 the session, checks origin, joins authorized rooms, and validates membership
 before creating a message. Push delivery does not depend on volatile socket
 visibility state: every subscribed device of the recipient is eligible, while
-the sender is excluded. Notifications are intentionally generic and contain no
-message content.
+the sender is excluded. The encrypted Web Push payload carries the sender
+display name and optional avatar URL for OS-controlled presentation, but no
+message text.
 
 ## Deployment
 

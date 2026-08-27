@@ -1,4 +1,5 @@
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
+import { notificationPresentation, type PushNotificationData } from './notification';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string }> };
 precacheAndRoute(self.__WB_MANIFEST);
@@ -9,13 +10,8 @@ self.addEventListener('message', (event) => {
 self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });
 
 self.addEventListener('push', (event) => {
-  const data = event.data?.json() as { title?: string; body?: string; url?: string; tag?: string } | undefined;
-  const options: NotificationOptions = {
-    icon: '/notification-icon.png', badge: '/notification-badge.png', data: { url: data?.url ?? '/' },
-  };
-  if (data?.body) options.body = data.body;
-  if (data?.tag) options.tag = data.tag;
-  event.waitUntil(self.registration.showNotification(data?.title ?? 'Nuovo messaggio', options));
+  const { title, options } = notificationPresentation(event.data?.json() as PushNotificationData | undefined);
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();

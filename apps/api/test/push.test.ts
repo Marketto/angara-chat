@@ -29,7 +29,7 @@ describe('conversation push recipients', () => {
   it('notifies every subscribed conversation member except the sender', async () => {
     const { notifyConversation } = await import('../src/push.js');
 
-    await notifyConversation('conversation-1', 'sender-1', 'Marco');
+    await notifyConversation('conversation-1', 'sender-1', 'Marco', 'https://lh3.googleusercontent.com/a/marco');
 
     expect(findMany).toHaveBeenCalledWith({
       where: {
@@ -42,5 +42,12 @@ describe('conversation push recipients', () => {
       expect.any(String),
       { TTL: 3600, urgency: 'high' },
     );
+    expect(JSON.parse(sendNotification.mock.calls[0]?.[1] as string)).toEqual({
+      title: 'Marco',
+      body: 'Nuovo messaggio',
+      senderAvatarUrl: 'https://lh3.googleusercontent.com/a/marco',
+      url: '/?conversation=conversation-1',
+      tag: 'conversation-conversation-1',
+    });
   });
 });

@@ -23,7 +23,12 @@ and restoration testing.
 
 The server sees accounts, participants, plaintext message content, timestamps,
 online presence implicit in socket connections, IP-level traffic and push
-endpoints. Push payloads remain generic and contain no message preview.
+endpoints. Push payloads contain the sender display name and optional avatar URL,
+but no message preview. When an avatar is present, the operating system or
+browser may fetch it from Google's image host while displaying the notification;
+that host can therefore observe the receiving device's IP address and request
+time. The sender name and avatar can also appear on the lock screen according to
+the receiving device's notification privacy settings.
 Push subscription registration accepts HTTPS endpoints only from known browser
 push-service domains; arbitrary internal or user-selected delivery URLs are
 rejected.

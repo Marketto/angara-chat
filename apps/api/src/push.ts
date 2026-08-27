@@ -4,13 +4,14 @@ import { db } from './db.js';
 
 webpush.setVapidDetails(config.VAPID_SUBJECT, config.VAPID_PUBLIC_KEY, config.VAPID_PRIVATE_KEY);
 
-export async function notifyConversation(conversationId: string, senderId: string, senderName: string) {
+export async function notifyConversation(conversationId: string, senderId: string, senderName: string, senderAvatarUrl: string | null) {
   const subscriptions = await db.pushSubscription.findMany({
     where: { userId: { not: senderId }, user: { memberships: { some: { conversationId } } } },
   });
   const payload = JSON.stringify({
     title: senderName,
     body: 'Nuovo messaggio',
+    senderAvatarUrl: senderAvatarUrl ?? undefined,
     url: `/?conversation=${encodeURIComponent(conversationId)}`,
     tag: `conversation-${conversationId}`,
   });
