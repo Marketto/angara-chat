@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { syncPushSubscription } from './push';
 
-vi.mock('./api', () => ({ api: { subscribe: vi.fn() } }));
+vi.mock('./api', () => ({ api: { subscribe: vi.fn(), unsubscribe: vi.fn() } }));
 
 describe('push subscription synchronization', () => {
   beforeEach(() => {
@@ -21,6 +21,27 @@ describe('push subscription synchronization', () => {
     });
 
     await expect(syncPushSubscription()).resolves.toBe(true);
+    expect(api.subscribe).toHaveBeenCalledWith(serialized);
+  });
+
+  it('replaces a stale subscription on explicit repair', async () => {
+    const previous = { endpoint: 'https://fcm.googleapis.com/fcm/send/old', unsubscribe: vi.fn().mockResolvedValue(true) };
+    const serialized = { endpoint: 'https://fcm.googleapis.com/fcm/send/new', keys: { p256dh: 'new-key', auth: 'new-auth' } };
+    const replacement = { toJSON: () => serialized };
+    const subscribe = vi.fn().mockResolvedValue(replacement);
+    vi.stubGlobal('Notification', { permission: 'granted', requestPermission: vi.fn().mockResolvedValue('granted') });
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        ready: Promise.resolve({ pushManager: { getSubscription: vi.fn().mockResolvedValue(previous), subscribe } }),
+      },
+    });
+    const { repairPushSubscription } = await import('./push');
+
+    await repairPushSubscription('AQAB');
+
+    expect(previous.unsubscribe).toHaveBeenCalledOnce();
+    expect(api.unsubscribe).toHaveBeenCalledWith(previous.endpoint);
+    expect(subscribe).toHaveBeenCalledOnce();
     expect(api.subscribe).toHaveBeenCalledWith(serialized);
   });
 });

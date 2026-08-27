@@ -22,5 +22,6 @@ export const pushSubscriptionSchema = z.object({
   endpoint: z.string().url().max(4096).refine(trustedPushEndpoint, 'Unsupported push service'),
   keys: z.object({ p256dh: z.string().min(1).max(512), auth: z.string().min(1).max(512) }),
 });
+export const pushEndpointSchema = z.object({ endpoint: z.string().url().max(4096) });
 export const logoutSchema = z.object({ pushEndpoint: z.string().url().max(4096).optional() });
 export const clientLogSchema = z.object({ code: z.string().regex(/^[A-Z0-9_:-]{1,80}$/), context: z.string().max(120).optional() });

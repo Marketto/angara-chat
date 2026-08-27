@@ -66,6 +66,9 @@ After a chat-delivery release, smoke-test with two signed-in devices: send two
 messages rapidly and confirm each appears once, then put the receiving PWA in
 the background (including a locked display) and confirm the generic push is
 shown. Logging out on one device must not disable push on the other.
+If a push provider accepts delivery but a device receives only payload-free test
+notifications, use **Repair notifications** on that device to replace its stale
+endpoint and payload-encryption keys without affecting other devices.
 
 Every deployment clears dangling Angara release images before the build and
 after the new release. The script never uses global Docker pruning on the shared

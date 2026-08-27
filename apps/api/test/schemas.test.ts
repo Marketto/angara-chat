@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contactDiscoverySchema, logoutSchema, plaintextMessageSchema, pushSubscriptionSchema } from '../src/schemas.js';
+import { contactDiscoverySchema, logoutSchema, plaintextMessageSchema, pushEndpointSchema, pushSubscriptionSchema } from '../src/schemas.js';
 
 describe('plaintext message schema', () => {
   it('accepts bounded text and rejects blank or oversized bodies', () => {
@@ -37,5 +37,12 @@ describe('logout schema', () => {
   it('accepts only the current device push endpoint', () => {
     expect(logoutSchema.parse({ pushEndpoint: 'https://push.example/device-a' })).toEqual({ pushEndpoint: 'https://push.example/device-a' });
     expect(logoutSchema.safeParse({ pushEndpoint: 'not-a-url' }).success).toBe(false);
+  });
+});
+
+describe('push endpoint schema', () => {
+  it('accepts a bounded HTTPS endpoint for device-specific removal', () => {
+    expect(pushEndpointSchema.parse({ endpoint: 'https://fcm.googleapis.com/fcm/send/device' })).toEqual({ endpoint: 'https://fcm.googleapis.com/fcm/send/device' });
+    expect(pushEndpointSchema.safeParse({ endpoint: 'not-a-url' }).success).toBe(false);
   });
 });

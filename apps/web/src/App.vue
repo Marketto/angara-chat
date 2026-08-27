@@ -6,7 +6,7 @@ import { contactEmails, gmailEmails } from './contacts';
 import { claimDraft, restoreDraft } from './message-submit';
 import { reconcileMessage } from './messages';
 import { outbox, type QueuedMessage } from './outbox';
-import { currentPushEndpoint, enablePush, syncPushSubscription } from './push';
+import { currentPushEndpoint, enablePush, repairPushSubscription, syncPushSubscription } from './push';
 import { createSingleFlight } from './single-flight';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
@@ -284,7 +284,12 @@ async function startConversation(user: User) {
 
 async function requestPush() {
   if (!config.value) return;
-  try { await enablePush(config.value.vapidPublicKey); pushEnabled.value = true; }
+  try {
+    if (pushEnabled.value) await repairPushSubscription(config.value.vapidPublicKey);
+    else await enablePush(config.value.vapidPublicKey);
+    pushEnabled.value = true;
+    error.value = '';
+  }
   catch { error.value = t('pushFailed'); }
 }
 
@@ -328,7 +333,7 @@ async function logout() {
       </header>
       <div class="sidebar-actions">
         <button class="primary" @click="openContacts">＋ {{ t('newChat') }}</button>
-        <button v-if="!pushEnabled" class="quiet" @click="requestPush">{{ t('notifications') }}</button>
+        <button class="quiet" @click="requestPush">{{ pushEnabled ? t('repairNotifications') : t('notifications') }}</button>
         <button v-if="canInstall" class="quiet install-button" @click="installApp">⇩ {{ t('install') }}</button>
       </div>
       <nav :aria-label="t('conversations')">

@@ -34,6 +34,23 @@ export async function syncPushSubscription() {
   return true;
 }
 
+/** Replace an endpoint whose provider accepts pushes but no longer delivers payloads. */
+export async function repairPushSubscription(vapidPublicKey: string) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('UNSUPPORTED');
+  if (Notification.permission !== 'granted' && await Notification.requestPermission() !== 'granted') throw new Error('DENIED');
+  const registration = await navigator.serviceWorker.ready;
+  const previous = await registration.pushManager.getSubscription();
+  if (previous) {
+    await api.unsubscribe(previous.endpoint);
+    if (!await previous.unsubscribe()) throw new Error('UNSUBSCRIBE_FAILED');
+  }
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToBytes(vapidPublicKey),
+  });
+  await api.subscribe(subscription.toJSON());
+}
+
 export async function currentPushEndpoint() {
   if (Notification.permission !== 'granted' || !('serviceWorker' in navigator) || !('PushManager' in window)) return undefined;
   const registration = await navigator.serviceWorker.ready;

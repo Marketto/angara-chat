@@ -6,7 +6,7 @@ import { rateLimit } from 'express-rate-limit';
 import { config } from './config.js';
 import { db } from './db.js';
 import { createSession, hashToken, readSessionToken, requireUser, sessionUser, SESSION_COOKIE } from './session.js';
-import { clientLogSchema, contactDiscoverySchema, createConversationSchema, googleCredentialSchema, localTestLoginSchema, logoutSchema, pushSubscriptionSchema } from './schemas.js';
+import { clientLogSchema, contactDiscoverySchema, createConversationSchema, googleCredentialSchema, localTestLoginSchema, logoutSchema, pushEndpointSchema, pushSubscriptionSchema } from './schemas.js';
 import { joinConversationMembers } from './socket.js';
 
 const google = new OAuth2Client(config.GOOGLE_CLIENT_ID);
@@ -207,5 +207,11 @@ api.post('/push/subscriptions', async (request, response) => {
     update: { userId: response.locals.user.id, ...input.data.keys },
     create: { userId: response.locals.user.id, endpoint: input.data.endpoint, ...input.data.keys },
   });
+  return response.status(204).end();
+});
+api.delete('/push/subscriptions', async (request, response) => {
+  const input = pushEndpointSchema.safeParse(request.body);
+  if (!input.success) return response.status(400).json({ error: 'INVALID_SUBSCRIPTION' });
+  await db.pushSubscription.deleteMany({ where: { userId: response.locals.user.id, endpoint: input.data.endpoint } });
   return response.status(204).end();
 });

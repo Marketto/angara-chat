@@ -18,7 +18,7 @@ export default defineConfig({
           { src: '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
-      injectManifest: { globPatterns: ['**/*.{js,css,html,svg}'] },
+      injectManifest: { globPatterns: ['**/*.{js,css,html,svg,png}'] },
     }),
   ],
   server: { proxy: { '/api': 'http://localhost:3000', '/socket.io': { target: 'http://localhost:3000', ws: true } } },

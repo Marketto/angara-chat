@@ -21,5 +21,6 @@ export const api = {
   discover: (emails: string[]) => request<User[]>('/contacts/discover', { method: 'POST', body: JSON.stringify({ emails }) }),
   createConversation: (participantId: string) => request<{ id: string }>('/conversations', { method: 'POST', body: JSON.stringify({ participantId }) }),
   subscribe: (subscription: PushSubscriptionJSON) => request<void>('/push/subscriptions', { method: 'POST', body: JSON.stringify(subscription) }),
+  unsubscribe: (endpoint: string) => request<void>('/push/subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint }) }),
   clientLog: (code: string, context?: string) => request<void>('/client-logs', { method: 'POST', body: JSON.stringify({ code, context }) }),
 };

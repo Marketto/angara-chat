@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Angara notification badge">
+  <g fill="#fff">
+    <path d="M108 379h296v34H108zM130 352h252v28H130zM151 236h210v116H151z"/>
+    <path d="M180 198h42v-70h-42zm110 0h42v-70h-42zM235 198h42V94h-42z"/>
+    <path d="M170 128h62l-31-58zm110 0h62l-31-58zM225 94h62l-31-58z"/>
+  </g>
+</svg>
