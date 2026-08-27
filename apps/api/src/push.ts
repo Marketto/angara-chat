@@ -16,7 +16,7 @@ export async function notifyConversation(conversationId: string, senderId: strin
   });
   await Promise.allSettled(subscriptions.map(async (subscription) => {
     try {
-      await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload, { TTL: 3600 });
+      await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload, { TTL: 3600, urgency: 'high' });
     } catch (error) {
       const status = (error as { statusCode?: number }).statusCode;
       if (status === 404 || status === 410) await db.pushSubscription.delete({ where: { endpoint: subscription.endpoint } });

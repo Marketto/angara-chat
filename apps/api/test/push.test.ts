@@ -22,7 +22,8 @@ vi.mock('web-push', () => ({
 describe('conversation push recipients', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    findMany.mockResolvedValue([]);
+    findMany.mockResolvedValue([{ endpoint: 'https://fcm.googleapis.com/fcm/send/1', p256dh: 'key', auth: 'auth' }]);
+    sendNotification.mockResolvedValue({ statusCode: 201 });
   });
 
   it('notifies every subscribed conversation member except the sender', async () => {
@@ -36,5 +37,10 @@ describe('conversation push recipients', () => {
         user: { memberships: { some: { conversationId: 'conversation-1' } } },
       },
     });
+    expect(sendNotification).toHaveBeenCalledWith(
+      { endpoint: 'https://fcm.googleapis.com/fcm/send/1', keys: { p256dh: 'key', auth: 'auth' } },
+      expect.any(String),
+      { TTL: 3600, urgency: 'high' },
+    );
   });
 });
