@@ -1,4 +1,4 @@
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 ARG BUILD_VERSION=dev
 ARG TEST_AUTH_TOKEN
 ENV BUILD_VERSION=$BUILD_VERSION
@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter @angara/api db:generate && pnpm build
 
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 ARG BUILD_VERSION=dev
 ENV NODE_ENV=production
 ENV BUILD_VERSION=$BUILD_VERSION
