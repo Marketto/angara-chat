@@ -24,6 +24,20 @@ and restoration testing.
 The server sees accounts, participants, plaintext message content, timestamps,
 online presence implicit in socket connections, IP-level traffic and push
 endpoints. Push payloads remain generic and contain no message preview.
+Push subscription registration accepts HTTPS endpoints only from known browser
+push-service domains; arbitrary internal or user-selected delivery URLs are
+rejected.
+
+When a device lacks the browser Contact Picker, a user may grant Google’s
+read-only Contacts permission while creating a chat. The browser queries Google
+directly, filters Gmail addresses, and sends only candidate addresses to the API
+for matching. The service does not store the address book or the Google access
+token; it returns only registered users who do not already share a conversation.
+
+Messages created while offline are retained as plaintext in the browser's
+IndexedDB only until the API acknowledges them, or until the user explicitly
+signs out. A person with access to the unlocked browser profile can read that
+local pending-message queue.
 
 This is a web application: a fully compromised VPS can serve modified JavaScript
 and can read stored message text. The current design provides no confidentiality

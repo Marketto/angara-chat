@@ -2,8 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { io, type Socket } from 'socket.io-client';
 import { api } from './api';
-import { contactEmails } from './contacts';
-import { enablePush, hasPushSubscription } from './push';
+import { contactEmails, gmailEmails } from './contacts';
+import { claimDraft, restoreDraft } from './message-submit';
+import { reconcileMessage } from './messages';
+import { outbox, type QueuedMessage } from './outbox';
+import { currentPushEndpoint, enablePush, syncPushSubscription } from './push';
+import { createSingleFlight } from './single-flight';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
 import { pickChatTheme, type ChatTheme } from './chat-themes';
@@ -20,15 +24,18 @@ const error = ref('');
 const showContacts = ref(false);
 const discovered = ref<User[]>([]);
 const manualEmail = ref('');
+const localTestEmail = ref('');
 const pushEnabled = ref(false);
 const messageList = ref<HTMLElement | null>(null);
 const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
 const chatTheme = ref<ChatTheme>(pickChatTheme());
 const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
 let socket: Socket | null = null;
+const flushOutbox = createSingleFlight(flushOutboxBatch);
 
 const activeConversation = computed(() => conversations.value.find(({ id }) => id === activeId.value) ?? null);
 const canPickContacts = computed(() => Boolean(navigator.contacts?.select));
+const googleContactsScope = 'https://www.googleapis.com/auth/contacts.readonly';
 
 watch(locale, (value) => { document.documentElement.lang = value; }, { immediate: true });
 function setLocale(event: Event) { locale.value = (event.target as HTMLSelectElement).value as Locale; }
@@ -36,6 +43,7 @@ function setLocale(event: Event) { locale.value = (event.target as HTMLSelectEle
 onMounted(async () => {
   window.addEventListener('beforeinstallprompt', captureInstallPrompt);
   window.addEventListener('appinstalled', clearInstallPrompt);
+  window.addEventListener('online', retryOutbox);
   try {
     config.value = await api.config();
     updateWhenBackendChanges(config.value.buildVersion);
@@ -52,6 +60,7 @@ onBeforeUnmount(() => {
   socket?.disconnect();
   window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
   window.removeEventListener('appinstalled', clearInstallPrompt);
+  window.removeEventListener('online', retryOutbox);
 });
 
 function captureInstallPrompt(event: Event) {
@@ -60,6 +69,7 @@ function captureInstallPrompt(event: Event) {
 }
 
 function clearInstallPrompt() { deferredInstallPrompt.value = null; }
+function retryOutbox() { socket?.connect(); void flushOutbox(); }
 
 async function installApp() {
   const prompt = deferredInstallPrompt.value;
@@ -92,19 +102,32 @@ async function renderGoogleLogin() {
   window.google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with' });
 }
 
+async function localTestLogin() {
+  if (!config.value?.localTestAuthEnabled || !localTestEmail.value.trim()) return;
+  try {
+    me.value = await api.localTestLogin(localTestEmail.value, import.meta.env.VITE_TEST_AUTH_TOKEN ?? '');
+    await enterApp();
+  } catch { error.value = t('loginFailed'); }
+}
+
 async function enterApp() {
-  try { pushEnabled.value = await hasPushSubscription(); }
+  try { pushEnabled.value = await syncPushSubscription(); }
   catch { pushEnabled.value = false; }
   conversations.value = await api.conversations();
   socket?.disconnect();
   socket = io({ withCredentials: true });
+  socket.on('connect', () => {
+    void refreshConversations();
+    void flushOutbox();
+  });
   socket.on('message:new', async (message: Message) => {
-    if (message.conversationId === activeId.value && !messages.value.some(({ id }) => id === message.id)) {
-      messages.value.push(message);
+    if (message.conversationId === activeId.value) {
+      messages.value = reconcileMessage(messages.value, message);
       await scrollToBottom();
     }
     void refreshConversations();
   });
+  socket.on('conversation:new', () => { void refreshConversations(); });
   const fromUrl = new URL(location.href).searchParams.get('conversation');
   if (fromUrl && conversations.value.some(({ id }) => id === fromUrl)) await openConversation(fromUrl);
 }
@@ -118,6 +141,7 @@ async function openConversation(id: string) {
   chatTheme.value = pickChatTheme();
   activeId.value = id;
   messages.value = await api.messages(id);
+  await showQueuedMessages(id);
   socket?.emit('conversation:join', id);
   history.replaceState({}, '', `/?conversation=${encodeURIComponent(id)}`);
   await scrollToBottom();
@@ -134,13 +158,54 @@ async function scrollToBottom() {
 }
 
 async function sendMessage() {
-  const body = draft.value.trim();
-  if (!body || !activeId.value || !socket) return;
-  const clientId = crypto.randomUUID();
-  draft.value = '';
-  socket.emit('message:send', { conversationId: activeId.value, clientId, body }, (result: { ok: boolean }) => {
-    if (!result.ok) { error.value = t('messageFailed'); draft.value = body; }
-  });
+  if (!activeId.value || !me.value) return;
+  const body = claimDraft(draft);
+  if (!body) return;
+  const queued = createQueuedMessage(activeId.value, body);
+  try { await queueMessage(queued); }
+  catch { restoreDraft(draft, body); error.value = t('messageFailed'); return; }
+  void flushOutbox();
+}
+
+function createQueuedMessage(conversationId: string, body: string): QueuedMessage {
+  return { clientId: crypto.randomUUID(), conversationId, userId: me.value!.id, body, createdAt: new Date().toISOString() };
+}
+
+async function queueMessage(message: QueuedMessage) {
+  if ((await outbox.forUser(message.userId)).length >= 500) throw new Error('OUTBOX_FULL');
+  await outbox.put(message);
+  if (message.conversationId === activeId.value && !messages.value.some(({ clientId }) => clientId === message.clientId)) {
+    messages.value = reconcileMessage(messages.value, { id: `queued:${message.clientId}`, ...message, senderId: me.value!.id, deliveryState: socket?.connected ? 'sending' : 'queued' });
+    await scrollToBottom();
+  }
+}
+
+async function showQueuedMessages(conversationId: string) {
+  if (!me.value) return;
+  const queued = await outbox.forUser(me.value.id);
+  for (const message of queued.filter((item) => item.conversationId === conversationId)) {
+    messages.value = reconcileMessage(messages.value, { id: `queued:${message.clientId}`, ...message, senderId: me.value.id, deliveryState: socket?.connected ? 'sending' : 'queued' });
+  }
+}
+
+async function flushOutboxBatch() {
+  if (!socket?.connected || !me.value) return false;
+  for (const message of await outbox.forUser(me.value.id)) {
+    const pending = messages.value.find(({ clientId }) => clientId === message.clientId);
+    if (pending) pending.deliveryState = 'sending';
+    const result = await new Promise<{ ok: boolean; message?: Message } | null>((resolve) => {
+      socket!.timeout(10_000).emit('message:send', message, (timeout: Error | null, acknowledgement?: { ok: boolean; message?: Message }) => resolve(timeout ? null : acknowledgement ?? null));
+    });
+    if (!result?.ok) {
+      if (pending) pending.deliveryState = 'queued';
+      return false;
+    }
+    await outbox.remove(message.clientId);
+    if (result.message?.conversationId === activeId.value) {
+      messages.value = reconcileMessage(messages.value, result.message);
+    }
+  }
+  return true;
 }
 
 
@@ -152,10 +217,43 @@ async function pickContacts() {
   } catch { /* The user may simply close the native picker. */ }
 }
 
+async function googleAccessToken(): Promise<string> {
+  if (!config.value || !window.google?.accounts.oauth2) throw new Error('GOOGLE_CONTACTS_UNAVAILABLE');
+  return new Promise((resolve, reject) => {
+    const tokenClient = window.google!.accounts.oauth2!.initTokenClient({
+      client_id: config.value!.googleClientId,
+      scope: googleContactsScope,
+      callback: ({ access_token, error }) => access_token ? resolve(access_token) : reject(new Error(error ?? 'GOOGLE_CONTACTS_DENIED')),
+    });
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  });
+}
+
+async function pickGoogleContacts() {
+  try {
+    const accessToken = await googleAccessToken();
+    const contacts: Array<{ emailAddresses?: Array<{ value?: string }> }> = [];
+    let pageToken = '';
+    do {
+      const query = new URLSearchParams({ personFields: 'emailAddresses', pageSize: '1000', sources: 'READ_SOURCE_TYPE_CONTACT' });
+      if (pageToken) query.set('pageToken', pageToken);
+      const response = await fetch(`https://people.googleapis.com/v1/people/me/connections?${query}`, { headers: { authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error('GOOGLE_CONTACTS_FETCH_FAILED');
+      const body = await response.json() as { connections?: Array<{ emailAddresses?: Array<{ value?: string }> }>; nextPageToken?: string };
+      contacts.push(...(body.connections ?? []));
+      pageToken = body.nextPageToken ?? '';
+    } while (pageToken && contacts.length < 5_000);
+    await discover(gmailEmails(contacts));
+  } catch {
+    error.value = t('noUsers');
+  }
+}
+
 async function discover(emails: string[]) {
   const normalized = emails.map((email) => email.trim().toLowerCase()).filter(Boolean);
   if (!normalized.length) return;
-  discovered.value = await api.discover(normalized);
+  const batches = Array.from({ length: Math.ceil(normalized.length / 500) }, (_, index) => normalized.slice(index * 500, (index + 1) * 500));
+  discovered.value = (await Promise.all(batches.map((batch) => api.discover(batch)))).flat();
   if (!discovered.value.length) error.value = t('noUsers');
 }
 
@@ -165,7 +263,13 @@ async function discoverManual() {
 }
 
 async function openContacts() {
-  try { showContacts.value = true; }
+  try {
+    showContacts.value = true;
+    discovered.value = [];
+    error.value = '';
+    if (canPickContacts.value) await pickContacts();
+    else await pickGoogleContacts();
+  }
   catch { void api.clientLog('CONTACTS_MODAL_OPEN_FAILED'); error.value = t('loginFailed'); }
 }
 
@@ -185,7 +289,11 @@ async function requestPush() {
 }
 
 async function logout() {
-  await api.logout();
+  let pushEndpoint: string | undefined;
+  try { pushEndpoint = await currentPushEndpoint(); }
+  catch { /* Logout still invalidates this session if browser push lookup fails. */ }
+  await api.logout(pushEndpoint);
+  if (me.value) await outbox.clearUser(me.value.id);
   socket?.disconnect();
   me.value = null;
   activeId.value = null;
@@ -204,6 +312,7 @@ async function logout() {
       <h1>{{ t('loginTitle') }}</h1>
       <p>{{ t('loginText') }}</p>
       <a class="google-button" href="/api/auth/google/start">Continua con Google</a>
+      <form v-if="config?.localTestAuthEnabled" class="manual" @submit.prevent="localTestLogin"><label for="local-test-email">Local test email</label><div><input id="local-test-email" v-model="localTestEmail" type="email" autocomplete="off"><button>Accedi localmente</button></div></form>
       <button v-if="canInstall" class="install-cta" @click="installApp">{{ t('installPhone') }}</button>
       <select class="language-select" :value="locale" aria-label="Language" @change="setLocale"><option v-for="item in supportedLocales" :key="item" :value="item">{{ item.toUpperCase() }}</option></select>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -240,7 +349,7 @@ async function logout() {
         </header>
         <div ref="messageList" class="messages" aria-live="polite">
           <div v-for="message in messages" :key="message.id" class="message" :class="{ mine: message.senderId === me.id, failed: message.decryptionFailed }">
-            <p>{{ message.body }}</p><time>{{ new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time>
+            <p>{{ message.body }}</p><time>{{ new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}<span v-if="message.senderId === me.id" class="message-status" :class="message.deliveryState || 'sent'" :aria-label="message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'" :title="message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'">{{ message.deliveryState === 'queued' ? '📡̸' : message.deliveryState === 'sending' ? '◷' : '✓✓' }}</span></time>
           </div>
         </div>
         <form class="composer" @submit.prevent="sendMessage">
@@ -257,6 +366,7 @@ async function logout() {
         <p class="eyebrow">{{ t('newConversation') }}</p><h2 id="contacts-title">{{ t('findPerson') }}</h2>
         <p v-if="canPickContacts">{{ t('contactPicker') }}</p>
         <button v-if="canPickContacts" class="primary wide" @click="pickContacts">{{ t('openContacts') }}</button>
+        <button v-else class="primary wide" @click="pickGoogleContacts">{{ t('openContacts') }}</button>
         <div class="manual"><label for="email">{{ t('orEmail') }}</label><div><input id="email" v-model="manualEmail" type="email" autocomplete="off" placeholder="name@example.com" @keydown.enter="discoverManual"><button @click="discoverManual">{{ t('search') }}</button></div></div>
         <button v-for="user in discovered" :key="user.id" class="found-user" @click="startConversation(user)"><img :src="user.avatarUrl || '/icon.svg'" alt=""><span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span><b>＋</b></button>
       </section>

@@ -29,10 +29,15 @@ it stores the message body, sender ID, and timestamps. All signed-in devices for
 an account access the same conversation history.
 
 The REST API handles login, session state, email contact discovery, conversation
-creation/history, and push subscription registration. Socket.IO authenticates
+creation/history, and push subscription registration. An authenticated client
+re-registers an existing browser push subscription on startup so the API can
+recover if its subscription record was removed; logout removes only that
+browser's endpoint so other signed-in devices keep receiving notifications. Socket.IO authenticates
 the session, checks origin, joins authorized rooms, and validates membership
-before creating a message. Push notifications are intentionally generic and
-contain no message content.
+before creating a message. Push delivery does not depend on volatile socket
+visibility state: every subscribed device of the recipient is eligible, while
+the sender is excluded. Notifications are intentionally generic and contain no
+message content.
 
 ## Deployment
 

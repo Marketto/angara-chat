@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contactDiscoverySchema, plaintextMessageSchema, pushSubscriptionSchema } from '../src/schemas.js';
+import { contactDiscoverySchema, logoutSchema, plaintextMessageSchema, pushSubscriptionSchema } from '../src/schemas.js';
 
 describe('plaintext message schema', () => {
   it('accepts bounded text and rejects blank or oversized bodies', () => {
@@ -20,7 +20,22 @@ describe('contact discovery schema', () => {
 
 describe('push subscription schema', () => {
   it('requires a valid endpoint and both encryption keys', () => {
-    expect(pushSubscriptionSchema.safeParse({ endpoint: 'https://push.example/1', keys: { p256dh: 'key', auth: 'auth' } }).success).toBe(true);
+    expect(pushSubscriptionSchema.safeParse({ endpoint: 'https://fcm.googleapis.com/fcm/send/1', keys: { p256dh: 'key', auth: 'auth' } }).success).toBe(true);
     expect(pushSubscriptionSchema.safeParse({ endpoint: 'not-a-url', keys: { p256dh: '', auth: '' } }).success).toBe(false);
+  });
+
+  it('rejects non-HTTPS and non-push-service endpoints', () => {
+    const keys = { p256dh: 'key', auth: 'auth' };
+    expect(pushSubscriptionSchema.safeParse({ endpoint: 'http://fcm.googleapis.com/send/1', keys }).success).toBe(false);
+    expect(pushSubscriptionSchema.safeParse({ endpoint: 'https://127.0.0.1/internal', keys }).success).toBe(false);
+    expect(pushSubscriptionSchema.safeParse({ endpoint: 'https://updates.push.services.mozilla.com/wpush/v2/1', keys }).success).toBe(true);
+    expect(pushSubscriptionSchema.safeParse({ endpoint: 'https://web.push.apple.com/QH123', keys }).success).toBe(true);
+  });
+});
+
+describe('logout schema', () => {
+  it('accepts only the current device push endpoint', () => {
+    expect(logoutSchema.parse({ pushEndpoint: 'https://push.example/device-a' })).toEqual({ pushEndpoint: 'https://push.example/device-a' });
+    expect(logoutSchema.safeParse({ pushEndpoint: 'not-a-url' }).success).toBe(false);
   });
 });

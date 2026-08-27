@@ -1,19 +1,23 @@
 import { Router } from 'express';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { parse } from 'cookie';
 import { OAuth2Client } from 'google-auth-library';
 import { rateLimit } from 'express-rate-limit';
 import { config } from './config.js';
 import { db } from './db.js';
 import { createSession, hashToken, readSessionToken, requireUser, sessionUser, SESSION_COOKIE } from './session.js';
-import { clientLogSchema, contactDiscoverySchema, createConversationSchema, googleCredentialSchema, pushSubscriptionSchema } from './schemas.js';
+import { clientLogSchema, contactDiscoverySchema, createConversationSchema, googleCredentialSchema, localTestLoginSchema, logoutSchema, pushSubscriptionSchema } from './schemas.js';
+import { joinConversationMembers } from './socket.js';
 
 const google = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+const contactsLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
 const OAUTH_STATE_COOKIE = 'chat_google_oauth_state';
 const GOOGLE_REDIRECT_PATH = '/api/auth/google/redirect';
 export const api = Router();
 const clientLogs: Array<{ at: number; userId: string; code: string; context?: string }> = [];
+const originHost = new URL(config.APP_ORIGIN).hostname;
+const localTestAuthEnabled = config.NODE_ENV !== 'production' && ['localhost', '127.0.0.1', '::1'].includes(originHost) && !config.COOKIE_SECURE && Boolean(config.TEST_AUTH_TOKEN);
 
 api.get('/health', async (_request, response) => {
   try {
@@ -24,7 +28,7 @@ api.get('/health', async (_request, response) => {
   }
 });
 
-api.get('/config', (_request, response) => response.json({ googleClientId: config.GOOGLE_CLIENT_ID, vapidPublicKey: config.VAPID_PUBLIC_KEY, buildVersion: config.BUILD_VERSION }));
+api.get('/config', (_request, response) => response.json({ googleClientId: config.GOOGLE_CLIENT_ID, vapidPublicKey: config.VAPID_PUBLIC_KEY, buildVersion: config.BUILD_VERSION, localTestAuthEnabled }));
 api.get('/auth/google/start', (_request, response) => {
   const state = randomBytes(32).toString('base64url');
   response.cookie(OAUTH_STATE_COOKIE, state, { httpOnly: true, secure: config.COOKIE_SECURE, sameSite: 'lax', path: '/', maxAge: 600_000 });
@@ -54,6 +58,21 @@ api.post('/auth/google', authLimit, async (request, response) => {
   let user;
   try { user = await googleUser(input.data.credential); }
   catch { return response.status(401).json({ error: 'UNVERIFIED_GOOGLE_ACCOUNT' }); }
+  await createSession(user.id, response);
+  return response.json(user);
+});
+
+if (localTestAuthEnabled) api.post('/auth/local-test', authLimit, async (request, response) => {
+  const token = request.get('x-test-auth-token') ?? '';
+  if (!safeEqual(token, config.TEST_AUTH_TOKEN!)) return response.status(404).end();
+  const input = localTestLoginSchema.safeParse(request.body);
+  if (!input.success) return response.status(400).json({ error: 'INVALID_TEST_USER' });
+  const digest = createHmac('sha256', config.TEST_AUTH_TOKEN!).update(input.data.email).digest('hex');
+  const user = await db.user.upsert({
+    where: { googleSub: `test:${digest}` }, update: { email: input.data.email },
+    create: { googleSub: `test:${digest}`, email: input.data.email, name: 'Local test user' },
+    select: { id: true, email: true, name: true, avatarUrl: true },
+  });
   await createSession(user.id, response);
   return response.json(user);
 });
@@ -91,9 +110,11 @@ function safeEqual(left: string, right: string) {
 }
 
 api.post('/auth/logout', async (request, response) => {
+  const input = logoutSchema.safeParse(request.body);
+  if (!input.success) return response.status(400).json({ error: 'INVALID_LOGOUT' });
   const token = readSessionToken(request.headers.cookie);
   const user = await sessionUser(request.headers.cookie);
-  if (user) await db.pushSubscription.deleteMany({ where: { userId: user.id } });
+  if (user && input.data.pushEndpoint) await db.pushSubscription.deleteMany({ where: { userId: user.id, endpoint: input.data.pushEndpoint } });
   if (token) await db.session.deleteMany({ where: { tokenHash: hashToken(token) } });
   response.clearCookie(SESSION_COOKIE, { path: '/' });
   response.status(204).end();
@@ -113,11 +134,17 @@ api.post('/client-logs', (request, response) => {
 });
 api.get('/me', (_request, response) => response.json(response.locals.user));
 
-api.post('/contacts/discover', async (request, response) => {
+api.post('/contacts/discover', contactsLimit, async (request, response) => {
   const input = contactDiscoverySchema.safeParse(request.body);
   if (!input.success) return response.status(400).json({ error: 'INVALID_CONTACTS' });
   const users = await db.user.findMany({
-    where: { email: { in: [...new Set(input.data.emails)] }, id: { not: response.locals.user.id } },
+    where: {
+      email: { in: [...new Set(input.data.emails)] },
+      id: { not: response.locals.user.id },
+      // Direct conversations are unique, so any shared conversation means this
+      // person is already visible in the user's chat list.
+      memberships: { none: { conversation: { members: { some: { userId: response.locals.user.id } } } } },
+    },
     select: { id: true, email: true, name: true, avatarUrl: true }, take: 100,
   });
   return response.json(users);
@@ -155,6 +182,7 @@ api.post('/conversations', async (request, response) => {
     create: { directKey, members: { create: ids.map((userId) => ({ userId })) } },
     select: { id: true },
   });
+  joinConversationMembers(conversation.id, ids);
   return response.json(conversation);
 });
 

@@ -10,7 +10,7 @@ export async function notifyConversation(conversationId: string, senderId: strin
   });
   const payload = JSON.stringify({
     title: senderName,
-    body: 'Nuovo messaggio crittografato',
+    body: 'Nuovo messaggio',
     url: `/?conversation=${encodeURIComponent(conversationId)}`,
     tag: `conversation-${conversationId}`,
   });
@@ -20,6 +20,7 @@ export async function notifyConversation(conversationId: string, senderId: strin
     } catch (error) {
       const status = (error as { statusCode?: number }).statusCode;
       if (status === 404 || status === 410) await db.pushSubscription.delete({ where: { endpoint: subscription.endpoint } });
+      else console.error('PUSH_DELIVERY_FAILED', { status: status ?? 'unknown' });
     }
   }));
 }

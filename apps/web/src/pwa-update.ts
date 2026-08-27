@@ -2,9 +2,7 @@ import { registerSW } from 'virtual:pwa-register';
 
 const clientBuildVersion = import.meta.env.VITE_BUILD_VERSION || 'dev';
 let registration: ServiceWorkerRegistration | undefined;
-let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
-
-updateServiceWorker = registerSW({
+const updateServiceWorker = registerSW({
   immediate: true,
   onRegisteredSW(_url, registered) {
     registration = registered;

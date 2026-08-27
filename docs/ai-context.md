@@ -63,9 +63,9 @@ pnpm --filter @angara/api test
 
 ## Production deployment
 
-1. Work only in the Angara checkout, currently `/opt/angara` on the VPS.
+1. Work only in the Angara checkout on the VPS.
 2. Keep `.env` on the VPS. Its `APP_ORIGIN` and Google OAuth origin must exactly
-   match `https://chat.marketto.it:8443` (or the configured public origin). Also
+   match the configured public origin (for example, `https://chat.example.com:8443`). Also
    configure its `/api/auth/google/redirect` URL as the Google redirect URI.
 3. Run `./deploy/deploy.sh` from the Angara directory. It generates the shared
    frontend/backend build ID used for installed-PWA update checks.

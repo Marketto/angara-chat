@@ -15,7 +15,7 @@ app.use(helmet({
       scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://accounts.google.com/gsi/style'],
       imgSrc: ["'self'", 'data:', 'https://*.googleusercontent.com'],
-      connectSrc: ["'self'", 'wss:', 'https://accounts.google.com/gsi/'],
+      connectSrc: ["'self'", 'wss:', 'https://accounts.google.com/gsi/', 'https://people.googleapis.com'],
       frameSrc: ['https://accounts.google.com/gsi/'],
       objectSrc: ["'none'"],
     },

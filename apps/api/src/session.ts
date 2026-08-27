@@ -4,7 +4,7 @@ import { parse } from 'cookie';
 import { config } from './config.js';
 import { db } from './db.js';
 
-export const SESSION_COOKIE = '__Host-chat_session';
+export const SESSION_COOKIE = config.COOKIE_SECURE ? '__Host-chat_session' : 'chat_session';
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 export function readSessionToken(cookieHeader?: string): string | undefined {

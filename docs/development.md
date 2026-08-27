@@ -11,6 +11,9 @@ cp .env.example .env
 
 For local development set `APP_ORIGIN=http://localhost:5173` and
 `COOKIE_SECURE=false` in `.env`. Configure the Google client with that origin.
+To enable the non-native-contact fallback, enable the Google People API in the
+same Google Cloud project; Angara requests the read-only Contacts scope only
+after the user presses **Nuova chat**.
 
 ## Start locally
 

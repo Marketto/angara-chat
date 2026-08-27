@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const bool = z.string().transform((value) => value === 'true');
 
-export const config = z.object({
+const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   APP_ORIGIN: z.string().url(),
@@ -16,4 +16,8 @@ export const config = z.object({
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   COOKIE_SECURE: bool.default(true),
   BUILD_VERSION: z.string().min(1).max(100).default('dev'),
-}).parse(process.env);
+  TEST_AUTH_TOKEN: z.string().min(32).optional(),
+});
+
+export const config = schema.parse(process.env);
+if (config.NODE_ENV === 'production' && config.TEST_AUTH_TOKEN) throw new Error('TEST_AUTH_TOKEN is forbidden in production');

@@ -23,3 +23,19 @@ export async function hasPushSubscription() {
   const registration = await navigator.serviceWorker.ready;
   return Boolean(await registration.pushManager.getSubscription());
 }
+
+/** Restore the server-side registration if the browser retained its subscription. */
+export async function syncPushSubscription() {
+  if (Notification.permission !== 'granted' || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) return false;
+  await api.subscribe(subscription.toJSON());
+  return true;
+}
+
+export async function currentPushEndpoint() {
+  if (Notification.permission !== 'granted' || !('serviceWorker' in navigator) || !('PushManager' in window)) return undefined;
+  const registration = await navigator.serviceWorker.ready;
+  return (await registration.pushManager.getSubscription())?.endpoint;
+}

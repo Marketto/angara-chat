@@ -12,6 +12,11 @@ administrators, database backups, and anyone who compromises those systems can
 read message text. Do not use this release for communications that require E2EE
 or confidentiality from the service operator.
 
+Messages composed while offline are also retained as plaintext in the browser's
+IndexedDB until the server acknowledges them. They are removed on acknowledgement
+or explicit sign-out, but remain readable to anyone with access to the unlocked
+browser profile before then.
+
 ## Authentication and device access
 
 Google authentication establishes a server-side session in a secure, `HttpOnly`

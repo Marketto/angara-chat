@@ -62,6 +62,17 @@ checks the service worker for an update and activates the new precache. A PWA
 must be opened with network access to receive an update; a closed mobile app
 cannot update itself in the background.
 
+After a chat-delivery release, smoke-test with two signed-in devices: send two
+messages rapidly and confirm each appears once, then put the receiving PWA in
+the background (including a locked display) and confirm the generic push is
+shown. Logging out on one device must not disable push on the other.
+
+Every deployment clears dangling Angara release images before the build and
+after the new release. The script never uses global Docker pruning on the shared
+VPS, so it preserves VPN resources, other services, active containers, volumes,
+and networks. Check `docker system df` and `df -h /` after releases on the small
+VPS; investigate before available space becomes low.
+
 For a suspected compromise, preserve relevant non-sensitive logs, rotate exposed
 credentials (OAuth configuration, VAPID keys, database password, and deployment
 access as appropriate), patch the host and images, and assess the warning in
