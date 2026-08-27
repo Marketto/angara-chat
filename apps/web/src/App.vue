@@ -26,6 +26,7 @@ const discovered = ref<User[]>([]);
 const manualEmail = ref('');
 const localTestEmail = ref('');
 const pushEnabled = ref(false);
+const pushPending = ref(false);
 const messageList = ref<HTMLElement | null>(null);
 const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
 const chatTheme = ref<ChatTheme>(pickChatTheme());
@@ -283,7 +284,8 @@ async function startConversation(user: User) {
 }
 
 async function requestPush() {
-  if (!config.value) return;
+  if (!config.value || pushPending.value) return;
+  pushPending.value = true;
   try {
     if (pushEnabled.value) await repairPushSubscription(config.value.vapidPublicKey);
     else await enablePush(config.value.vapidPublicKey);
@@ -291,6 +293,7 @@ async function requestPush() {
     error.value = '';
   }
   catch { error.value = t('pushFailed'); }
+  finally { pushPending.value = false; }
 }
 
 async function logout() {
@@ -333,7 +336,7 @@ async function logout() {
       </header>
       <div class="sidebar-actions">
         <button class="primary" @click="openContacts">＋ {{ t('newChat') }}</button>
-        <button class="quiet" @click="requestPush">{{ pushEnabled ? t('repairNotifications') : t('notifications') }}</button>
+        <button class="quiet" :disabled="pushPending" @click="requestPush">{{ pushEnabled ? t('repairNotifications') : t('notifications') }}</button>
         <button v-if="canInstall" class="quiet install-button" @click="installApp">⇩ {{ t('install') }}</button>
       </div>
       <nav :aria-label="t('conversations')">

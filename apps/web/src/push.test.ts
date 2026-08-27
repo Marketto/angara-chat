@@ -44,4 +44,27 @@ describe('push subscription synchronization', () => {
     expect(subscribe).toHaveBeenCalledOnce();
     expect(api.subscribe).toHaveBeenCalledWith(serialized);
   });
+
+  it('coalesces concurrent repair requests for the same browser device', async () => {
+    const previous = { endpoint: 'https://fcm.googleapis.com/fcm/send/old', unsubscribe: vi.fn().mockResolvedValue(true) };
+    const replacement = { toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/new', keys: { p256dh: 'key', auth: 'auth' } }) };
+    const subscribe = vi.fn().mockResolvedValue(replacement);
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        ready: Promise.resolve({ pushManager: { getSubscription: vi.fn().mockResolvedValue(previous), subscribe } }),
+      },
+    });
+    const { repairPushSubscription } = await import('./push');
+
+    await Promise.all([
+      repairPushSubscription('AQAB'),
+      repairPushSubscription('AQAB'),
+      repairPushSubscription('AQAB'),
+    ]);
+
+    expect(api.unsubscribe).toHaveBeenCalledOnce();
+    expect(previous.unsubscribe).toHaveBeenCalledOnce();
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(api.subscribe).toHaveBeenCalledOnce();
+  });
 });

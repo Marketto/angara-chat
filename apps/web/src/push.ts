@@ -35,7 +35,9 @@ export async function syncPushSubscription() {
 }
 
 /** Replace an endpoint whose provider accepts pushes but no longer delivers payloads. */
-export async function repairPushSubscription(vapidPublicKey: string) {
+let repairInFlight: Promise<void> | undefined;
+
+async function performPushSubscriptionRepair(vapidPublicKey: string) {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('UNSUPPORTED');
   if (Notification.permission !== 'granted' && await Notification.requestPermission() !== 'granted') throw new Error('DENIED');
   const registration = await navigator.serviceWorker.ready;
@@ -49,6 +51,12 @@ export async function repairPushSubscription(vapidPublicKey: string) {
     applicationServerKey: urlBase64ToBytes(vapidPublicKey),
   });
   await api.subscribe(subscription.toJSON());
+}
+
+export function repairPushSubscription(vapidPublicKey: string) {
+  if (repairInFlight) return repairInFlight;
+  repairInFlight = performPushSubscriptionRepair(vapidPublicKey).finally(() => { repairInFlight = undefined; });
+  return repairInFlight;
 }
 
 export async function currentPushEndpoint() {

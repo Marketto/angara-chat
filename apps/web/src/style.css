@@ -25,6 +25,7 @@ h1 { font-size: clamp(36px, 7vw, 54px); line-height: 1.02; }
 .primary, .quiet, .manual button, .install-cta { min-height: 42px; border-radius: 14px; border: 0; padding: 0 16px; font-weight: 600; }
 .primary { color: white; background: #17231d; }
 .quiet { color: #17231d; background: #e8e2d6; }
+.quiet:disabled { cursor: wait; opacity: .6; }
 .install-cta { width: 100%; margin-top: 12px; color: #173d33; background: #d6e9d8; border: 1px solid #9ab89f; }
 .install-button { grid-column: 1 / -1; color: #173d33; background: #d6e9d8; }
 nav { overflow-y: auto; }
