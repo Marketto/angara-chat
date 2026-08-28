@@ -45,11 +45,9 @@ export function attachSocket(server: HttpServer) {
     socket.data.user = user;
     next();
   });
-  io.on('connection', async (socket) => {
+  io.on('connection', (socket) => {
     const user = socket.data.user as { id: string; name: string; avatarUrl: string | null };
-    await socket.join(`user:${user.id}`);
-    const memberships = await db.conversationMember.findMany({ where: { userId: user.id }, select: { conversationId: true } });
-    memberships.forEach(({ conversationId }) => socket.join(conversationRoom(conversationId)));
+    // The client can emit as soon as it receives `connect`; attach handlers before yielding to room setup.
     let messageWindowStartedAt = Date.now();
     let messagesInWindow = 0;
     socket.on('conversation:join', async (conversationId: string) => {
@@ -83,6 +81,11 @@ export function attachSocket(server: HttpServer) {
         acknowledge({ ok: false, error: 'INTERNAL_ERROR' });
       }
     });
+    void (async () => {
+      await socket.join(`user:${user.id}`);
+      const memberships = await db.conversationMember.findMany({ where: { userId: user.id }, select: { conversationId: true } });
+      await Promise.all(memberships.map(({ conversationId }) => socket.join(conversationRoom(conversationId))));
+    })().catch(() => console.error('Failed to join socket conversation rooms'));
   });
   return io;
 }
