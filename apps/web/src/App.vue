@@ -7,7 +7,7 @@ import { claimDraft, restoreDraft } from './message-submit';
 import { mergeMessages, reconcileMessage } from './messages';
 import { outbox, type QueuedMessage } from './outbox';
 import { deliverQueuedMessages } from './outbox-delivery';
-import { currentPushEndpoint, enablePush, repairPushSubscription, syncPushSubscription } from './push';
+import { currentPushEndpoint, enablePush, syncPushSubscription } from './push';
 import { createSingleFlight } from './single-flight';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
@@ -47,7 +47,9 @@ function setLocale(event: Event) { locale.value = (event.target as HTMLSelectEle
 onMounted(async () => {
   window.addEventListener('beforeinstallprompt', captureInstallPrompt);
   window.addEventListener('appinstalled', clearInstallPrompt);
+  window.addEventListener('focus', refreshPushState);
   window.addEventListener('online', retryOutbox);
+  window.addEventListener('online', refreshPushState);
   try {
     config.value = await api.config();
     updateWhenBackendChanges(config.value.buildVersion);
@@ -66,7 +68,9 @@ onBeforeUnmount(() => {
   socket?.disconnect();
   window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
   window.removeEventListener('appinstalled', clearInstallPrompt);
+  window.removeEventListener('focus', refreshPushState);
   window.removeEventListener('online', retryOutbox);
+  window.removeEventListener('online', refreshPushState);
 });
 
 function captureInstallPrompt(event: Event) {
@@ -139,8 +143,7 @@ async function localTestLogin() {
 }
 
 async function enterApp() {
-  try { pushEnabled.value = await syncPushSubscription(); }
-  catch { pushEnabled.value = false; }
+  await refreshPushState();
   conversations.value = await api.conversations();
   socket?.disconnect();
   socket = io({ withCredentials: true });
@@ -162,6 +165,12 @@ async function enterApp() {
   socket.on('conversation:new', () => { void refreshConversations(); });
   const fromUrl = new URL(location.href).searchParams.get('conversation');
   if (fromUrl && conversations.value.some(({ id }) => id === fromUrl)) await openConversation(fromUrl);
+}
+
+async function refreshPushState() {
+  if (!me.value || pushPending.value) return;
+  try { pushEnabled.value = await syncPushSubscription(); }
+  catch { pushEnabled.value = false; }
 }
 
 async function refreshConversations() { conversations.value = await api.conversations(); }
@@ -342,11 +351,10 @@ async function startConversation(user: User) {
 }
 
 async function requestPush() {
-  if (!config.value || pushPending.value) return;
+  if (!config.value || pushPending.value || pushEnabled.value) return;
   pushPending.value = true;
   try {
-    if (pushEnabled.value) await repairPushSubscription(config.value.vapidPublicKey);
-    else await enablePush(config.value.vapidPublicKey);
+    await enablePush(config.value.vapidPublicKey);
     pushEnabled.value = true;
     error.value = '';
   }
@@ -396,7 +404,14 @@ async function logout() {
       </header>
       <div class="sidebar-actions">
         <button class="primary" @click="openContacts">＋ {{ t('newChat') }}</button>
-        <button class="quiet" :disabled="pushPending" @click="requestPush">{{ pushEnabled ? t('repairNotifications') : t('notifications') }}</button>
+        <button
+          v-if="!pushEnabled"
+          class="quiet"
+          :disabled="pushPending"
+          @click="requestPush"
+        >
+          {{ t('notifications') }}
+        </button>
         <button v-if="canInstall" class="quiet install-button" @click="installApp">⇩ {{ t('install') }}</button>
       </div>
       <nav :aria-label="t('conversations')">

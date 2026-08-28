@@ -69,11 +69,10 @@ shown. The sender name should be the emphasized notification title, the sender
 avatar should be the main icon when available, and the monochrome Angara badge
 must not render as a solid square. Logging out on one device must not disable
 push on the other.
-If a push provider accepts delivery but a device receives only payload-free test
-notifications, use **Repair notifications** on that device to replace its stale
-endpoint and payload-encryption keys without affecting other devices. The client
-allows only one repair at a time, so repeated taps cannot create parallel
-replacement subscriptions.
+The client shows **Enable notifications** only while the current device lacks a
+usable browser subscription or cannot synchronize it with the server. After a
+successful registration the action disappears. Focusing or reopening the PWA
+checks the device again, so revoking browser permission makes the action return.
 
 Every deployment clears dangling Angara release images before the build and
 after the new release. The script never uses global Docker pruning on the shared
