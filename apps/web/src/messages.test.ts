@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reconcileMessage } from './messages';
+import { mergeMessages, reconcileMessage } from './messages';
 import type { Message } from './types';
 
 const queued: Message = {
@@ -30,5 +30,14 @@ describe('message reconciliation', () => {
 
   it('repairs an array that already contains duplicate copies', () => {
     expect(reconcileMessage([queued, persisted], persisted)).toEqual([persisted]);
+  });
+
+  it('keeps a live message that arrived while a history snapshot was loading', () => {
+    const live = { ...persisted, id: 'message-2', clientId: 'client-2' };
+    expect(mergeMessages([persisted, live], [persisted])).toEqual([persisted, live]);
+  });
+
+  it('prefers the server snapshot over an optimistic copy with the same clientId', () => {
+    expect(mergeMessages([queued], [persisted])).toEqual([persisted]);
   });
 });

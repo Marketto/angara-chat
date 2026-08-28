@@ -15,6 +15,11 @@
 
 This release protects sessions against JavaScript access, checks same-origin state-changing requests, rate-limits login, verifies Google ID tokens on the server, validates input and authorizes conversation membership.
 
+Socket handshakes require the configured `Origin`. When a same-origin browser
+transport omits that header, Angara instead requires both the configured `Host`
+and `Sec-Fetch-Site: same-origin`; session authentication and per-message
+membership checks remain mandatory.
+
 Message content is protected in transit by HTTPS/WebSocket TLS, but it is stored
 as plaintext in PostgreSQL. The application server, database administrators, and
 a database-only compromise can read message text. Database backups therefore

@@ -8,6 +8,7 @@ import { db } from './db.js';
 import { createSession, hashToken, readSessionToken, requireUser, sessionUser, SESSION_COOKIE } from './session.js';
 import { clientLogSchema, contactDiscoverySchema, createConversationSchema, googleCredentialSchema, localTestLoginSchema, logoutSchema, pushEndpointSchema, pushSubscriptionSchema } from './schemas.js';
 import { joinConversationMembers } from './socket.js';
+import { latestConversationMessages } from './message-history.js';
 
 const google = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
@@ -192,11 +193,7 @@ api.get('/conversations/:id/messages', async (request, response) => {
     where: { conversationId_userId: { conversationId, userId: response.locals.user.id } },
   });
   if (!membership) return response.status(404).json({ error: 'CONVERSATION_NOT_FOUND' });
-  const messages = await db.message.findMany({
-    where: { conversationId }, orderBy: { createdAt: 'asc' }, take: 100,
-    select: { id: true, clientId: true, senderId: true, body: true, createdAt: true },
-  });
-  return response.json(messages);
+  return response.json(await latestConversationMessages(conversationId));
 });
 
 api.post('/push/subscriptions', async (request, response) => {

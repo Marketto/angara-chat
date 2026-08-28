@@ -4,14 +4,15 @@ import { io, type Socket } from 'socket.io-client';
 import { api } from './api';
 import { contactEmails, gmailEmails } from './contacts';
 import { claimDraft, restoreDraft } from './message-submit';
-import { reconcileMessage } from './messages';
+import { mergeMessages, reconcileMessage } from './messages';
 import { outbox, type QueuedMessage } from './outbox';
+import { deliverQueuedMessages } from './outbox-delivery';
 import { currentPushEndpoint, enablePush, repairPushSubscription, syncPushSubscription } from './push';
 import { createSingleFlight } from './single-flight';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
 import { pickChatTheme, type ChatTheme } from './chat-themes';
-import type { Conversation, DecryptedMessage, InstallPromptEvent, Message, PublicConfig, User } from './types';
+import type { Conversation, DecryptedMessage, InstallPromptEvent, Message, MessageSendAcknowledgement, PermanentMessageSendError, PublicConfig, User } from './types';
 
 const me = ref<User | null>(null);
 const config = ref<PublicConfig | null>(null);
@@ -32,6 +33,8 @@ const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
 const chatTheme = ref<ChatTheme>(pickChatTheme());
 const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
 let socket: Socket | null = null;
+let outboxRetryTimer: number | undefined;
+let socketReconnectTimer: number | undefined;
 const flushOutbox = createSingleFlight(flushOutboxBatch);
 
 const activeConversation = computed(() => conversations.value.find(({ id }) => id === activeId.value) ?? null);
@@ -58,6 +61,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  clearOutboxRetry();
+  clearSocketReconnect();
   socket?.disconnect();
   window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
   window.removeEventListener('appinstalled', clearInstallPrompt);
@@ -71,6 +76,28 @@ function captureInstallPrompt(event: Event) {
 
 function clearInstallPrompt() { deferredInstallPrompt.value = null; }
 function retryOutbox() { socket?.connect(); void flushOutbox(); }
+function clearOutboxRetry() {
+  if (outboxRetryTimer !== undefined) window.clearTimeout(outboxRetryTimer);
+  outboxRetryTimer = undefined;
+}
+function scheduleOutboxRetry(delayMs: number) {
+  clearOutboxRetry();
+  outboxRetryTimer = window.setTimeout(() => {
+    outboxRetryTimer = undefined;
+    void flushOutbox();
+  }, delayMs);
+}
+function clearSocketReconnect() {
+  if (socketReconnectTimer !== undefined) window.clearTimeout(socketReconnectTimer);
+  socketReconnectTimer = undefined;
+}
+function scheduleSocketReconnect() {
+  if (socketReconnectTimer !== undefined) return;
+  socketReconnectTimer = window.setTimeout(() => {
+    socketReconnectTimer = undefined;
+    socket?.connect();
+  }, 3_000);
+}
 
 async function installApp() {
   const prompt = deferredInstallPrompt.value;
@@ -118,9 +145,13 @@ async function enterApp() {
   socket?.disconnect();
   socket = io({ withCredentials: true });
   socket.on('connect', () => {
+    clearSocketReconnect();
     void refreshConversations();
-    void flushOutbox();
   });
+  socket.on('connect_error', (failure: Error) => {
+    if (failure.message !== 'unauthorized') scheduleSocketReconnect();
+  });
+  socket.on('delivery:ready', () => { void synchronizeAfterReconnect().catch(() => undefined); });
   socket.on('message:new', async (message: Message) => {
     if (message.conversationId === activeId.value) {
       messages.value = reconcileMessage(messages.value, message);
@@ -134,6 +165,23 @@ async function enterApp() {
 }
 
 async function refreshConversations() { conversations.value = await api.conversations(); }
+
+async function synchronizeAfterReconnect() {
+  try {
+    await refreshConversations();
+    const conversationId = activeId.value;
+    if (conversationId) {
+      const history = await api.messages(conversationId);
+      if (activeId.value === conversationId) {
+        messages.value = mergeMessages(messages.value, history);
+        await showQueuedMessages(conversationId);
+        await scrollToBottom();
+      }
+    }
+  } finally {
+    void flushOutbox();
+  }
+}
 
 async function openConversation(id: string) {
   error.value = '';
@@ -185,28 +233,38 @@ async function showQueuedMessages(conversationId: string) {
   if (!me.value) return;
   const queued = await outbox.forUser(me.value.id);
   for (const message of queued.filter((item) => item.conversationId === conversationId)) {
-    messages.value = reconcileMessage(messages.value, { id: `queued:${message.clientId}`, ...message, senderId: me.value.id, deliveryState: socket?.connected ? 'sending' : 'queued' });
+    messages.value = reconcileMessage(messages.value, { id: `queued:${message.clientId}`, ...message, senderId: me.value.id, deliveryState: message.failure ? 'failed' : socket?.connected ? 'sending' : 'queued' });
   }
 }
 
 async function flushOutboxBatch() {
   if (!socket?.connected || !me.value) return false;
-  for (const message of await outbox.forUser(me.value.id)) {
-    const pending = messages.value.find(({ clientId }) => clientId === message.clientId);
-    if (pending) pending.deliveryState = 'sending';
-    const result = await new Promise<{ ok: boolean; message?: Message } | null>((resolve) => {
-      socket!.timeout(10_000).emit('message:send', message, (timeout: Error | null, acknowledgement?: { ok: boolean; message?: Message }) => resolve(timeout ? null : acknowledgement ?? null));
+  clearOutboxRetry();
+  try {
+    const { retryAfterMs } = await deliverQueuedMessages({
+      messages: await outbox.forUser(me.value.id),
+      send: (message) => new Promise<MessageSendAcknowledgement | null>((resolve) => {
+        socket!.timeout(10_000).emit('message:send', message, (timeout: Error | null, acknowledgement?: MessageSendAcknowledgement) => resolve(timeout ? null : acknowledgement ?? null));
+      }),
+      remove: (clientId) => outbox.remove(clientId),
+      markFailed: (message, failure: PermanentMessageSendError) => outbox.put({ ...message, failure }),
+      onState: (message, state) => {
+        const pending = messages.value.find(({ clientId }) => clientId === message.clientId);
+        if (pending) pending.deliveryState = state;
+      },
+      onDelivered: (message) => {
+        if (message.conversationId === activeId.value) messages.value = reconcileMessage(messages.value, message);
+      },
     });
-    if (!result?.ok) {
-      if (pending) pending.deliveryState = 'queued';
+    if (retryAfterMs !== undefined) {
+      scheduleOutboxRetry(retryAfterMs);
       return false;
     }
-    await outbox.remove(message.clientId);
-    if (result.message?.conversationId === activeId.value) {
-      messages.value = reconcileMessage(messages.value, result.message);
-    }
+    return true;
+  } catch {
+    scheduleOutboxRetry(3_000);
+    return false;
   }
-  return true;
 }
 
 
@@ -297,6 +355,8 @@ async function requestPush() {
 }
 
 async function logout() {
+  clearOutboxRetry();
+  clearSocketReconnect();
   let pushEndpoint: string | undefined;
   try { pushEndpoint = await currentPushEndpoint(); }
   catch { /* Logout still invalidates this session if browser push lookup fails. */ }
@@ -356,8 +416,8 @@ async function logout() {
           <strong>{{ activeConversation.peer?.name }}</strong>
         </header>
         <div ref="messageList" class="messages" aria-live="polite">
-          <div v-for="message in messages" :key="message.id" class="message" :class="{ mine: message.senderId === me.id, failed: message.decryptionFailed }">
-            <p>{{ message.body }}</p><time>{{ new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}<span v-if="message.senderId === me.id" class="message-status" :class="message.deliveryState || 'sent'" :aria-label="message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'" :title="message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'">{{ message.deliveryState === 'queued' ? '📡̸' : message.deliveryState === 'sending' ? '◷' : '✓✓' }}</span></time>
+          <div v-for="message in messages" :key="message.id" class="message" :class="{ mine: message.senderId === me.id, failed: message.decryptionFailed || message.deliveryState === 'failed' }">
+            <p>{{ message.body }}</p><time>{{ new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}<span v-if="message.senderId === me.id" class="message-status" :class="message.deliveryState || 'sent'" :aria-label="message.deliveryState === 'failed' ? 'Invio non riuscito' : message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'" :title="message.deliveryState === 'failed' ? 'Invio non riuscito' : message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'">{{ message.deliveryState === 'failed' ? '!' : message.deliveryState === 'queued' ? '📡̸' : message.deliveryState === 'sending' ? '◷' : '✓✓' }}</span></time>
           </div>
         </div>
         <form class="composer" @submit.prevent="sendMessage">

@@ -1,9 +1,12 @@
+import type { PermanentMessageSendError } from './types';
+
 export interface QueuedMessage {
   clientId: string;
   conversationId: string;
   userId: string;
   body: string;
   createdAt: string;
+  failure?: PermanentMessageSendError;
 }
 
 const databaseName = 'angara-outbox';

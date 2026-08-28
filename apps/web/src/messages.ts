@@ -15,3 +15,8 @@ export function reconcileMessage(messages: Message[], incoming: Message): Messag
   if (!inserted) reconciled.push(incoming);
   return reconciled;
 }
+
+/** Merge incoming messages into an existing list, deduplicating by server or client ID. */
+export function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
+  return incoming.reduce((merged, message) => reconcileMessage(merged, message), existing);
+}

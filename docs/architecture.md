@@ -40,6 +40,11 @@ the sender is excluded. The encrypted Web Push payload carries the sender
 display name and optional avatar URL for OS-controlled presentation, but no
 message text.
 
+After reconnecting, the API marks a socket delivery-ready only after restoring
+all authorized conversation rooms. The client then refreshes the active history
+and drains its persistent IndexedDB outbox. Transient failures are retried, and
+idempotent retries relay the stored message again without creating a second row.
+
 ## Deployment
 
 Docker Compose runs PostgreSQL only on `angara-internal`; the app is connected to

@@ -1,7 +1,10 @@
 export interface User { id: string; email?: string; name: string; avatarUrl: string | null }
 export interface Message {
-  id: string; clientId: string; conversationId?: string; senderId: string; body: string; createdAt: string; deliveryState?: 'queued' | 'sending';
+  id: string; clientId: string; conversationId?: string; senderId: string; body: string; createdAt: string; deliveryState?: 'queued' | 'sending' | 'failed';
 }
+export type MessageSendError = 'RATE_LIMITED' | 'INVALID_MESSAGE' | 'FORBIDDEN' | 'CLIENT_ID_CONFLICT' | 'INTERNAL_ERROR';
+export type PermanentMessageSendError = Extract<MessageSendError, 'INVALID_MESSAGE' | 'FORBIDDEN' | 'CLIENT_ID_CONFLICT'>;
+export type MessageSendAcknowledgement = { ok: true; message: Message } | { ok: false; error: MessageSendError; retryAfterMs?: number };
 export interface DecryptedMessage extends Message { body: string; decryptionFailed?: boolean }
 export interface Conversation { id: string; peer: User | null; lastMessage: { createdAt: string } | null }
 export interface PublicConfig { googleClientId: string; vapidPublicKey: string; buildVersion: string; localTestAuthEnabled: boolean }

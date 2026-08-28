@@ -19,4 +19,22 @@ describe('single-flight drain', () => {
 
     expect(passes).toBe(2);
   });
+
+  it('does not lose a concurrent wake-up when the active pass cannot finish', async () => {
+    let releaseFirst!: () => void;
+    const firstPass = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let passes = 0;
+    const drain = createSingleFlight(async () => {
+      passes += 1;
+      if (passes === 1) await firstPass;
+      return false;
+    });
+
+    const running = drain();
+    await drain();
+    releaseFirst();
+    await running;
+
+    expect(passes).toBe(2);
+  });
 });

@@ -12,7 +12,8 @@ export function createSingleFlight(task: () => Promise<boolean>) {
     try {
       do {
         requested = false;
-        if (!(await task())) return;
+        const completed = await task();
+        if (!completed && !requested) return;
       } while (requested);
     } finally {
       running = false;
