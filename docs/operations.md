@@ -72,6 +72,9 @@ push on the other.
 Also open a second signed-in device for the sender: it must load the complete
 existing history, receive new messages sent by either participant, and show no
 duplicate for messages sent by the sender's other device.
+With the receiving PWA already in the background, open a message notification
+and confirm the existing app window is focused on the conversation rather than
+creating a second window. The incoming message must appear once on both sides.
 The client shows **Enable notifications** only while the current device lacks a
 usable browser subscription or cannot synchronize it with the server. After a
 successful registration the action disappears. Focusing or reopening the PWA

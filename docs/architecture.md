@@ -47,9 +47,11 @@ all authorized conversation rooms. The client then refreshes the active history
 and drains its persistent IndexedDB outbox. History snapshots are merged with
 realtime events received while the request is in flight, so a late HTTP response
 cannot overwrite a newly delivered message. Transient failures are retried, and
-idempotent retries relay the stored message again without creating a second row.
-Realtime messages are emitted to the conversation room, so they reach the
-recipient and every connected device belonging to the sender.
+idempotent retries acknowledge the stored message to the retrying sender without
+rebroadcasting it or creating a second row. Realtime messages are emitted only
+for newly persisted records, so they reach the recipient and every connected
+device belonging to the sender exactly once per accepted send. A notification
+click navigates and focuses an existing app window before opening a new one.
 
 ## Deployment
 

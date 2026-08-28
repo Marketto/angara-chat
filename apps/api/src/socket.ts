@@ -83,7 +83,9 @@ export function attachSocket(server: HttpServer) {
         const persisted = await persistMessage(input.data, user.id);
         if (persisted.kind === 'conflict') return acknowledge({ ok: false, error: 'CLIENT_ID_CONFLICT' });
         const { message } = persisted;
-        io.to(conversationRoom(input.data.conversationId)).emit('message:new', message);
+        if (persisted.kind === 'created') {
+          io.to(conversationRoom(input.data.conversationId)).emit('message:new', message);
+        }
         acknowledge({ ok: true, message });
         if (persisted.kind === 'created') {
           void notifyConversation(input.data.conversationId, user.id, user.name, user.avatarUrl)

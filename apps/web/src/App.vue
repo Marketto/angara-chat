@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { io, type Socket } from 'socket.io-client';
 import { api } from './api';
 import { contactEmails, gmailEmails } from './contacts';
-import { claimDraft, restoreDraft } from './message-submit';
+import { claimDraft, isRapidDuplicateSubmission, restoreDraft, type MessageSubmission } from './message-submit';
 import { mergeMessages, reconcileMessage } from './messages';
 import { outbox, type QueuedMessage } from './outbox';
 import { deliverQueuedMessages } from './outbox-delivery';
@@ -35,6 +35,7 @@ const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
 let socket: Socket | null = null;
 let outboxRetryTimer: number | undefined;
 let socketReconnectTimer: number | undefined;
+let lastSubmission: MessageSubmission | null = null;
 const flushOutbox = createSingleFlight(flushOutboxBatch);
 
 const activeConversation = computed(() => conversations.value.find(({ id }) => id === activeId.value) ?? null);
@@ -222,9 +223,17 @@ async function sendMessage() {
   if (!activeId.value || !me.value) return;
   const body = claimDraft(draft);
   if (!body) return;
+  const submission = { conversationId: activeId.value, body, submittedAt: Date.now() };
+  if (isRapidDuplicateSubmission(lastSubmission, submission)) return;
+  lastSubmission = submission;
   const queued = createQueuedMessage(activeId.value, body);
   try { await queueMessage(queued); }
-  catch { restoreDraft(draft, body); error.value = t('messageFailed'); return; }
+  catch {
+    if (lastSubmission === submission) lastSubmission = null;
+    restoreDraft(draft, body);
+    error.value = t('messageFailed');
+    return;
+  }
   void flushOutbox();
 }
 

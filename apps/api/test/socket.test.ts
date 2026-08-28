@@ -138,7 +138,7 @@ describe('socket message delivery setup', () => {
       id: 'message-1', clientId: crypto.randomUUID(), conversationId: 'conversation-1',
       senderId: 'user-1', body: 'ciao', createdAt: new Date(),
     };
-    mocks.persistMessage.mockResolvedValue({ kind: 'retry', message });
+    mocks.persistMessage.mockResolvedValue({ kind: 'created', message });
     const { connection } = serverCallbacks();
     const { socket, handlers } = testSocket();
 
@@ -159,6 +159,28 @@ describe('socket message delivery setup', () => {
     expect(socket.emit).toHaveBeenCalledWith('delivery:ready');
     expect(mocks.roomEmit).toHaveBeenCalledWith('message:new', message);
     expect(acknowledge).toHaveBeenCalledWith({ ok: true, message });
+    expect(mocks.notifyConversation).toHaveBeenCalledWith('conversation-1', 'user-1', 'Marco', null);
+  });
+
+  it('acknowledges an idempotent retry without broadcasting the stored message again', async () => {
+    const message = {
+      id: 'message-1', clientId: crypto.randomUUID(), conversationId: 'conversation-1',
+      senderId: 'user-1', body: 'ciao', createdAt: new Date(),
+    };
+    mocks.persistMessage.mockResolvedValue({ kind: 'retry', message });
+    const { connection } = serverCallbacks();
+    const { socket, handlers } = testSocket();
+    connection(socket);
+    await Promise.resolve();
+    const acknowledge = vi.fn();
+
+    await handlers.get('message:send')?.(
+      { conversationId: 'conversation-1', clientId: message.clientId, body: message.body },
+      acknowledge,
+    );
+
+    expect(acknowledge).toHaveBeenCalledWith({ ok: true, message });
+    expect(mocks.roomEmit).not.toHaveBeenCalled();
     expect(mocks.notifyConversation).not.toHaveBeenCalled();
   });
 });

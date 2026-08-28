@@ -1,5 +1,6 @@
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { notificationPresentation, type PushNotificationData } from './notification';
+import { openNotificationTarget } from './notification-click';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string }> };
 precacheAndRoute(self.__WB_MANIFEST);
@@ -15,5 +16,8 @@ self.addEventListener('push', (event) => {
 });
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  event.waitUntil(self.clients.openWindow((event.notification.data as { url?: string })?.url ?? '/'));
+  event.waitUntil(openNotificationTarget({
+    matchAll: async (options) => (await self.clients.matchAll(options)) as WindowClient[],
+    openWindow: (url) => self.clients.openWindow(url),
+  }, (event.notification.data as { url?: string })?.url ?? '/', self.registration.scope));
 });
