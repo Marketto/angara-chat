@@ -29,6 +29,30 @@ Vite serves the client at `http://localhost:5173` and proxies `/api` and
 `/socket.io` to the API on port 3000. Generate VAPID keys with
 `pnpm dlx web-push generate-vapid-keys`; place them only in `.env`.
 
+### Local login without Google
+
+For local multi-account testing, choose a test-only token of at least 32
+characters and provide the same value to the API and Vite. The API exposes the
+local login only outside production, on a localhost origin, and with
+`COOKIE_SECURE=false`:
+
+```bash
+DOTENV_CONFIG_PATH=../../.env TEST_AUTH_TOKEN=replace-with-a-local-test-token pnpm --filter @angara/api dev
+VITE_TEST_AUTH_TOKEN=replace-with-the-same-local-test-token pnpm --filter @angara/web dev
+```
+
+Open separate browser profiles and sign in with different test email addresses.
+To verify multi-device behavior, sign in to two profiles with the same Alice
+address and one profile with a Bob address, create one conversation, then send
+in both directions. Both Alice profiles and Bob must receive each realtime
+message, and a newly opened Alice profile must load the complete server history.
+The non-regression socket test runs the equivalent three-client topology without
+Google:
+
+```bash
+pnpm --filter @angara/api exec vitest run test/socket-multidevice.integration.test.ts
+```
+
 ## Validation
 
 Run a focused package check while iterating:

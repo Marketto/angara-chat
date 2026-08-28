@@ -26,7 +26,9 @@ message text. This is intentionally not end-to-end encryption.
 `Conversation` is uniquely identified by sorted participant IDs. A `Message` is
 unique by `(conversationId, clientId)` to make retried socket sends idempotent;
 it stores the message body, sender ID, and timestamps. All signed-in devices for
-an account access the same conversation history.
+an account access the same complete conversation history. The MVP currently
+returns that history in one chronological response; pagination should be added
+before using Angara for high-volume conversations.
 
 The REST API handles login, session state, email contact discovery, conversation
 creation/history, and push subscription registration. An authenticated client
@@ -44,6 +46,8 @@ After reconnecting, the API marks a socket delivery-ready only after restoring
 all authorized conversation rooms. The client then refreshes the active history
 and drains its persistent IndexedDB outbox. Transient failures are retried, and
 idempotent retries relay the stored message again without creating a second row.
+Realtime messages are emitted to the conversation room, so they reach the
+recipient and every connected device belonging to the sender.
 
 ## Deployment
 

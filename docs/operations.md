@@ -69,6 +69,9 @@ shown. The sender name should be the emphasized notification title, the sender
 avatar should be the main icon when available, and the monochrome Angara badge
 must not render as a solid square. Logging out on one device must not disable
 push on the other.
+Also open a second signed-in device for the sender: it must load the complete
+existing history, receive new messages sent by either participant, and show no
+duplicate for messages sent by the sender's other device.
 The client shows **Enable notifications** only while the current device lacks a
 usable browser subscription or cannot synchronize it with the server. After a
 successful registration the action disappears. Focusing or reopening the PWA
