@@ -33,7 +33,7 @@ describe('message reconciliation', () => {
   });
 
   it('keeps a live message that arrived while a history snapshot was loading', () => {
-    const live = { ...persisted, id: 'message-2', clientId: 'client-2' };
+    const live = { ...persisted, id: 'message-2', clientId: 'client-2', body: 'secondo messaggio' };
     expect(mergeMessages([persisted, live], [persisted])).toEqual([persisted, live]);
   });
 
@@ -46,5 +46,19 @@ describe('message reconciliation', () => {
 
   it('prefers the server snapshot over an optimistic copy with the same clientId', () => {
     expect(mergeMessages([queued], [persisted])).toEqual([persisted]);
+  });
+
+  it('collapses two separately persisted copies created by one rapid submit', () => {
+    const first = { ...persisted, id: 'message-first', clientId: 'client-first', createdAt: '2026-08-28T17:37:45.454Z' };
+    const duplicate = { ...persisted, id: 'message-duplicate', clientId: 'client-duplicate', createdAt: '2026-08-28T17:37:45.584Z' };
+
+    expect(mergeMessages([], [first, duplicate])).toEqual([first]);
+  });
+
+  it('preserves an intentional repeated message sent later', () => {
+    const first = { ...persisted, id: 'message-first', clientId: 'client-first', createdAt: '2026-08-28T17:37:45.454Z' };
+    const repeated = { ...persisted, id: 'message-repeated', clientId: 'client-repeated', createdAt: '2026-08-28T17:37:46.455Z' };
+
+    expect(mergeMessages([], [first, repeated])).toEqual([first, repeated]);
   });
 });

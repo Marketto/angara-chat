@@ -51,7 +51,10 @@ idempotent retries acknowledge the stored message to the retrying sender without
 rebroadcasting it or creating a second row. Realtime messages are emitted only
 for newly persisted records, so they reach the recipient and every connected
 device belonging to the sender exactly once per accepted send. A notification
-click navigates and focuses an existing app window before opening a new one.
+click navigates and focuses an existing app window before opening a new one. As
+a non-destructive compatibility repair for already stored incidents, the client
+collapses identical persisted copies from the same sender created within one
+second while retaining later intentional repetitions.
 
 ## Deployment
 
