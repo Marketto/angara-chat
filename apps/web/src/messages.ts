@@ -18,5 +18,10 @@ export function reconcileMessage(messages: Message[], incoming: Message): Messag
 
 /** Merge incoming messages into an existing list, deduplicating by server or client ID. */
 export function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
-  return incoming.reduce((merged, message) => reconcileMessage(merged, message), existing);
+  return incoming
+    .reduce((merged, message) => reconcileMessage(merged, message), [...existing])
+    .sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
 }

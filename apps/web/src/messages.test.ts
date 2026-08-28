@@ -37,6 +37,13 @@ describe('message reconciliation', () => {
     expect(mergeMessages([persisted, live], [persisted])).toEqual([persisted, live]);
   });
 
+  it('places an older history snapshot before a live message received during loading', () => {
+    const older = { ...persisted, id: 'message-old', clientId: 'client-old', createdAt: '2026-08-27T05:59:00.000Z' };
+    const live = { ...persisted, id: 'message-live', clientId: 'client-live', createdAt: '2026-08-27T06:01:00.000Z' };
+
+    expect(mergeMessages([live], [older])).toEqual([older, live]);
+  });
+
   it('prefers the server snapshot over an optimistic copy with the same clientId', () => {
     expect(mergeMessages([queued], [persisted])).toEqual([persisted]);
   });

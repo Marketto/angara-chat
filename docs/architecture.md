@@ -44,7 +44,9 @@ message text.
 
 After reconnecting, the API marks a socket delivery-ready only after restoring
 all authorized conversation rooms. The client then refreshes the active history
-and drains its persistent IndexedDB outbox. Transient failures are retried, and
+and drains its persistent IndexedDB outbox. History snapshots are merged with
+realtime events received while the request is in flight, so a late HTTP response
+cannot overwrite a newly delivered message. Transient failures are retried, and
 idempotent retries relay the stored message again without creating a second row.
 Realtime messages are emitted to the conversation room, so they reach the
 recipient and every connected device belonging to the sender.

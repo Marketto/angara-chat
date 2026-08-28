@@ -198,7 +198,10 @@ async function openConversation(id: string) {
   if (!conversation) return;
   chatTheme.value = pickChatTheme();
   activeId.value = id;
-  messages.value = await api.messages(id);
+  messages.value = [];
+  const historySnapshot = await api.messages(id);
+  if (activeId.value !== id) return;
+  messages.value = mergeMessages(messages.value, historySnapshot);
   await showQueuedMessages(id);
   socket?.emit('conversation:join', id);
   history.replaceState({}, '', `/?conversation=${encodeURIComponent(id)}`);
