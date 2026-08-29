@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const app = readFileSync(new URL('./App.vue', import.meta.url), 'utf8');
 const serviceWorker = readFileSync(new URL('./sw.ts', import.meta.url), 'utf8');
+const styles = readFileSync(new URL('./style.css', import.meta.url), 'utf8');
 
 describe('sharing UI security invariants', () => {
   it('loads official OpenStreetMap tiles only after an explicit map click', () => {
@@ -28,5 +29,12 @@ describe('sharing UI security invariants', () => {
     expect(app).toContain('await outbox.clearUser(userId)');
     expect(app).toContain('revokeAllAttachmentUrls();');
     expect(app).toContain('URL.revokeObjectURL(url)');
+  });
+
+  it('keeps Leaflet panes below the share menu, dialogs and toast', () => {
+    expect(styles).toMatch(/\.location-map\s*\{[^}]*isolation:\s*isolate/u);
+    expect(styles).toMatch(/\.composer\s*\{[^}]*z-index:\s*1100/u);
+    expect(styles).toMatch(/\.modal-backdrop\s*\{[^}]*z-index:\s*2000/u);
+    expect(styles).toMatch(/\.toast\s*\{[^}]*z-index:\s*2100/u);
   });
 });
