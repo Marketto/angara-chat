@@ -61,6 +61,9 @@ that ID through `/api/config`; an installed PWA compares it to its own build,
 checks the service worker for an update and activates the new precache. A PWA
 must be opened with network access to receive an update; a closed mobile app
 cannot update itself in the background.
+If registration is slow or temporarily unavailable, the client remains usable;
+the forced fallback reload is limited to once per server build so a stale
+installation cannot enter an infinite reload loop.
 
 After a chat-delivery release, smoke-test with two signed-in devices: send two
 messages rapidly and confirm each appears once, then put the receiving PWA in
