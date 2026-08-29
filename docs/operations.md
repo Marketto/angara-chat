@@ -31,21 +31,6 @@ Use the OAuth web-server flow: retain both `GOOGLE_CLIENT_ID` and
 exchanges the authorization code server-side and validates a short-lived,
 HTTP-only `state` cookie before creating the normal session.
 
-## Trial TURN relay without disturbing the VPN
-
-The optional `turn` Compose service is a constrained relay trial; it does not
-enable calling UI by itself. It does not use port 443, Caddy, the VPN network,
-or the Angara app/database networks. Set `TURN_LISTEN_IP` to the public host
-IPv4 and generate a random `TURN_AUTH_SECRET` only in the VPS `.env`; never use
-a VPN/private address or commit either value. It publishes only TCP/UDP 3478
-and UDP 49160–49175, with a maximum of four allocations (at most two calls).
-
-Before and after starting it, record `free -h`, `docker stats --no-stream`,
-`ufw status`, and Amnezia connectivity. The service is capped at 96 MiB and
-0.20 CPU, has no CLI, TLS listener, TCP relay, persistent storage, or access to
-the Angara networks. Stop it immediately at VPN degradation, memory pressure,
-or unexpected traffic.
-
 ## Backup and restore rehearsal
 
 Back up the database with encrypted, access-controlled storage outside the VPS.

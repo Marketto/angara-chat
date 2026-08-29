@@ -74,59 +74,6 @@ services:
         condition: service_healthy
     networks: [angara-edge]
 
-  # Small relay-only trial. It is isolated from Angara networks and exposes no
-  # VPN port or TURN administration interface.
-  turn:
-    image: coturn/coturn:4.17.2-r0
-    restart: unless-stopped
-    env_file: .env
-    ports:
-      - "${TURN_LISTEN_IP:?set TURN_LISTEN_IP in .env}:3478:3478/tcp"
-      - "${TURN_LISTEN_IP:?set TURN_LISTEN_IP in .env}:3478:3478/udp"
-      - "${TURN_LISTEN_IP:?set TURN_LISTEN_IP in .env}:49160-49175:49160-49175/udp"
-    command:
-      - -n
-      - --log-file=stdout
-      - --listening-port=3478
-      - --listening-ip=172.30.0.2
-      - --relay-ip=172.30.0.2
-      - --external-ip=${TURN_LISTEN_IP:?set TURN_LISTEN_IP in .env}/172.30.0.2
-      - --min-port=49160
-      - --max-port=49175
-      - --realm=${APP_HOST:?set APP_HOST in .env}
-      - --fingerprint
-      - --no-stun
-      - --use-auth-secret
-      - --static-auth-secret=${TURN_AUTH_SECRET:?set TURN_AUTH_SECRET in .env}
-      - --user-quota=2
-      - --total-quota=4
-      - --max-bps=32000
-      - --bps-capacity=128000
-      - --no-cli
-      - --no-tcp-relay
-      - --no-tls
-      - --no-dtls
-      - --no-loopback-peers
-      - --no-multicast-peers
-      - --no-software-attribute
-      - --relay-threads=1
-      - --pidfile=/tmp/turnserver.pid
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
-    pids_limit: 64
-    mem_limit: 96m
-    mem_reservation: 48m
-    cpus: "0.20"
-    read_only: true
-    tmpfs: [/tmp, /var/lib/coturn]
-    logging:
-      options:
-        max-size: 5m
-        max-file: "2"
-    networks:
-      turn-edge:
-        ipv4_address: 172.30.0.2
-
 volumes:
   angara-db:
   caddy-data:
@@ -136,7 +83,3 @@ networks:
   angara-internal:
     internal: true
   angara-edge:
-  turn-edge:
-    ipam:
-      config:
-        - subnet: 172.30.0.0/29
