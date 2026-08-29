@@ -1,5 +1,6 @@
 export const attachmentMetadataSelection = {
   id: true, fileName: true, mediaType: true, byteSize: true, sha256: true,
+  createdAt: true, expiresAt: true, purgedAt: true,
 } as const;
 
 export const messageSelection = {

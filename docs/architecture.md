@@ -29,10 +29,13 @@ unique by `(conversationId, clientId)` to make retried sends idempotent. Its kin
 is text, image, document, or location. Text is stored in `body`; a location uses
 latitude, longitude, and optional accuracy; an image or document has one
 `MessageAttachment` with name, allowlisted media type, size, digest, and binary
-data. All signed-in devices for an account access the same complete conversation
-history. History and realtime events contain attachment metadata, never binary
-file data; an authenticated download endpoint verifies conversation membership
-before returning bytes. The MVP currently returns history in one chronological
+data. Image bytes are temporary: a running API purges them no later than 48
+hours after upload (and catches up expired images at startup), while the image
+message and its metadata remain in history. Document bytes do not expire. All
+signed-in devices for an account access the same complete conversation history.
+History and realtime events contain attachment metadata, never binary file data;
+an authenticated download endpoint verifies conversation membership before
+returning bytes. The MVP currently returns history in one chronological
 response; pagination should be added before using Angara for high-volume
 conversations.
 
@@ -54,8 +57,9 @@ edge and API. Authorization runs before body buffering; the server validates an
 allowlisted media signature and digest while bounding concurrent parsing.
 Retries reuse the message `clientId`; only a newly persisted row is broadcast
 and notified. Downloads are private, membership-authorized, marked `nosniff`,
-and documents use download disposition. A fixed 256 MiB aggregate attachment
-quota is enforced per sender account.
+and documents use download disposition. An expired image returns `410` rather
+than bytes. A fixed 256 MiB aggregate quota for bytes still present on the
+server is enforced per sender account.
 
 When an Angara window is focused, realtime delivery uses the bundled “Eco del
 Baikal” cue and the service worker keeps the foreground system banner silent to
@@ -82,8 +86,10 @@ second while retaining later intentional repetitions.
 
 Pending attachment `Blob`s and precise coordinates share the same IndexedDB
 outbox lifecycle as pending text: acknowledgement removes them and explicit
-sign-out clears the queue. Location is requested only after a user action and
-requires browser permission and confirmation. Shared locations initially render
+sign-out clears the queue. Once an image is sent or received, its browser keeps
+an account-scoped local Blob cache so it remains viewable after the temporary
+server copy is purged; explicit sign-out clears that cache. Location is requested
+only after a user action and requires browser permission and confirmation. Shared locations initially render
 as local placeholders. OpenStreetMap tiles load only after the viewer explicitly
 opens the map, with visible attribution and without prefetching or offline tile
 storage; that click discloses the viewer's IP address and viewed map area to the

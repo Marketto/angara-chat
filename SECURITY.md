@@ -21,11 +21,13 @@ and `Sec-Fetch-Site: same-origin`; session authentication and per-message
 membership checks remain mandatory.
 
 Message content is protected in transit by HTTPS/WebSocket TLS, but text,
-attachment bytes and metadata, and shared coordinates are stored as plaintext
-in PostgreSQL. The application server, database administrators, and a
-database-only compromise can read them. Database backups therefore contain
-sensitive plaintext and require encryption, access control, defined retention,
-and restoration testing.
+attachment metadata, shared coordinates, document bytes, and temporarily image
+bytes are stored as plaintext in PostgreSQL. Image bytes are purged by the API
+no later than 48 hours after upload (including a catch-up sweep at startup), but
+the message metadata remains. The application server, database administrators,
+and a database-only compromise can read retained data. Database backups therefore
+contain sensitive plaintext and require encryption, access control, defined
+retention, and restoration testing; expiry does not delete bytes from old backups.
 
 Attachment uploads are capped at 8 MiB (8,388,608 body bytes) at both Caddy and
 the API. Authentication and conversation membership are checked before the API
@@ -34,7 +36,8 @@ server verifies an allowlisted media type against file signatures, rejects
 SVG/HTML, validates the declared digest, and never publishes binary bytes
 through history or realtime events. Downloads verify membership through the
 message conversation, return a generic not-found response outside it, use
-private non-stored responses, set `nosniff`, and force document download. These
+private non-stored responses, set `nosniff`, and force document download. An
+expired image returns `410` without bytes. These
 checks reduce parser and IDOR risk but do not make user-provided files safe to
 open in another application. A fixed 256 MiB aggregate attachment quota per
 sender limits storage exhaustion; it is an availability control, not a data
@@ -60,8 +63,10 @@ token; it returns only registered users who do not already share a conversation.
 
 Messages created while offline, attachment `Blob`s, and coordinates are retained
 as plaintext in the browser's IndexedDB only until the API acknowledges them, or
-until the user explicitly signs out. A person with access to the unlocked
-browser profile can read that local pending-message queue.
+until the user explicitly signs out. Received and successfully sent image Blobs
+are then retained in an account-scoped local browser cache until explicit
+sign-out, so they can remain viewable after the server's temporary copy expires.
+A person with access to the unlocked browser profile can read those local bytes.
 
 Angara does not remove EXIF or other embedded metadata from shared images. Users
 should remove metadata before sending sensitive photographs. Location sharing

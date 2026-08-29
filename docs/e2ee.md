@@ -33,10 +33,15 @@ stores content, sender ID, client message ID, and timestamps, then relays conten
 or attachment metadata to authorized conversation members. The
 `(conversationId, clientId)` constraint keeps retried sends idempotent. File
 bytes are fetched separately through an authenticated, membership-authorized
-endpoint.
+endpoint. Image bytes are purged from the running service no later than 48 hours
+after upload; message metadata stays in history and a browser that has already
+received the image keeps an account-scoped local Blob cache until explicit
+sign-out. Documents do not have this expiry.
 
 TLS protects the connection in transit but does not encrypt the message body,
-file bytes and metadata, or coordinates from the application server or database.
+file bytes and metadata, or coordinates from the application server or database
+while they are retained there. Image expiry is not a guarantee about previously
+created database backups, which retain bytes according to their backup policy.
 Image files may retain EXIF metadata such as capture time, camera details, and a
 photo's own GPS coordinates; Angara does not strip it. Push notifications remain
 generic and do not include a message preview, attachment name, or location.
@@ -45,7 +50,8 @@ generic and do not include a message preview, attachment name, or location.
 
 - Google account identity and profile fields
 - conversation participants and plaintext message bodies
-- attachment contents, names, media types, sizes, digests, and embedded metadata
+- attachment names, media types, sizes, digests, and embedded metadata; image
+  bytes while the temporary 48-hour server copy exists, and document bytes
 - precise shared coordinates and reported accuracy
 - sender IDs, timestamps and online presence implicit in socket connections
 - push subscription endpoints
@@ -56,7 +62,8 @@ generic and do not include a message preview, attachment name, or location.
 - The server and database can read message text; database-only compromise exposes
   stored messages.
 - Backups must be encrypted and access controlled because they contain plaintext
-  message bodies, attachment bytes and metadata, and shared coordinates.
+  message bodies, attachment metadata, shared coordinates, and any attachment
+  bytes present when the backup was made.
 - TLS does not protect messages from the service operator or a compromised VPS.
 - Message bodies, lengths, timing and participants are not hidden from the
   service.

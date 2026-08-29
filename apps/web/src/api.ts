@@ -62,6 +62,11 @@ export const api = {
     return response.json() as Promise<Message>;
   },
   attachmentUrl: (attachmentId: string) => `/api/attachments/${encodeURIComponent(attachmentId)}`,
+  async downloadAttachment(attachmentId: string): Promise<Blob> {
+    const response = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}`, { credentials: 'same-origin' });
+    if (!response.ok) throw new ApiError(response.status, retryAfterMs(response));
+    return response.blob();
+  },
   subscribe: (subscription: PushSubscriptionJSON) => request<void>('/push/subscriptions', { method: 'POST', body: JSON.stringify(subscription) }),
   clientLog: (code: string, context?: string) => request<void>('/client-logs', { method: 'POST', body: JSON.stringify({ code, context }) }),
 };

@@ -7,6 +7,7 @@ import { messageSelection } from './message-selection.js';
 import { notifyConversation } from './push.js';
 import { conversationIdSchema } from './schemas.js';
 import { publishConversationMessage } from './socket.js';
+import { IMAGE_RETENTION_MS } from './image-retention.js';
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_CONCURRENT_UPLOADS = 3;
@@ -74,7 +75,7 @@ function enforceUserRequestRate(_request: Request, response: Response, next: Nex
 
 async function readStorageUsage(request: Request, response: Response, next: NextFunction) {
   const aggregate = await db.messageAttachment.aggregate({
-    where: { message: { senderId: response.locals.user.id } },
+    where: { data: { not: null }, message: { senderId: response.locals.user.id } },
     _sum: { byteSize: true },
   });
   const used = aggregate._sum.byteSize ?? 0;
@@ -149,9 +150,10 @@ async function uploadAttachment(request: Request, response: Response, next: Next
   }
 
   try {
+    const expiresAt = metadata.data.kind === 'IMAGE' ? new Date(Date.now() + IMAGE_RETENTION_MS) : null;
     const message = await db.$transaction(async (transaction) => {
       const usage = await transaction.messageAttachment.aggregate({
-        where: { message: { senderId: response.locals.user.id } },
+        where: { data: { not: null }, message: { senderId: response.locals.user.id } },
         _sum: { byteSize: true },
       });
       if ((usage._sum.byteSize ?? 0) + data.length > MAX_USER_STORAGE_BYTES) throw new StorageQuotaError();
@@ -168,6 +170,7 @@ async function uploadAttachment(request: Request, response: Response, next: Next
             byteSize: data.length,
             sha256: actualSha256,
             data: Uint8Array.from(data),
+            expiresAt,
           } },
         },
         select: messageSelection,
@@ -202,9 +205,22 @@ async function downloadAttachment(request: Request, response: Response) {
   if (!id) return response.status(404).json({ error: 'ATTACHMENT_NOT_FOUND' });
   const attachment = await db.messageAttachment.findFirst({
     where: { id, message: { conversation: { members: { some: { userId: response.locals.user.id } } } } },
-    select: { fileName: true, mediaType: true, byteSize: true, data: true, message: { select: { kind: true } } },
+    select: {
+      fileName: true, mediaType: true, byteSize: true, data: true, expiresAt: true, purgedAt: true,
+      message: { select: { kind: true } },
+    },
   });
   if (!attachment) return response.status(404).json({ error: 'ATTACHMENT_NOT_FOUND' });
+  if (attachment.message.kind === 'IMAGE' && (!attachment.data || (attachment.expiresAt && attachment.expiresAt <= new Date()))) {
+    if (attachment.data) {
+      await db.messageAttachment.updateMany({
+        where: { id, data: { not: null } },
+        data: { data: null, purgedAt: new Date() },
+      });
+    }
+    return response.status(410).json({ error: 'ATTACHMENT_EXPIRED' });
+  }
+  if (!attachment.data) return response.status(404).json({ error: 'ATTACHMENT_NOT_FOUND' });
   response.set({
     'Cache-Control': 'private, no-store',
     'Content-Type': attachment.mediaType,

@@ -88,14 +88,19 @@ enum MessageKind {
 }
 
 model MessageAttachment {
-  id        String  @id @default(cuid())
-  messageId String  @unique
+  id        String    @id @default(cuid())
+  messageId String    @unique
   fileName  String
   mediaType String
   byteSize  Int
   sha256    String
-  data      Bytes
-  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  data      Bytes?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  purgedAt  DateTime?
+  message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 model PushSubscription {

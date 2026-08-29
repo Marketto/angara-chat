@@ -8,6 +8,7 @@ import { claimDraft, isRapidDuplicateSubmission, restoreDraft, type MessageSubmi
 import { createIncomingMessageSound } from './message-sound';
 import { mergeMessages, reconcileMessage } from './messages';
 import { outbox, type QueuedMessage } from './outbox';
+import { localImageCache } from './attachment-cache';
 import { deliverQueuedMessages } from './outbox-delivery';
 import { createOutboxWakeup } from './outbox-wakeup';
 import { currentPushEndpoint, enablePush, syncPushSubscription } from './push';
@@ -33,6 +34,7 @@ const localTestEmail = ref('');
 const pushEnabled = ref(false);
 const pushPending = ref(false);
 const messageList = ref<HTMLElement | null>(null);
+const attachmentUrlRevision = ref(0);
 const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
 const chatTheme = ref<ChatTheme>(pickChatTheme());
 const showShareMenu = ref(false);
@@ -50,6 +52,7 @@ let outboxRetryTimer: number | undefined;
 let socketReconnectTimer: number | undefined;
 let lastSubmission: MessageSubmission | null = null;
 let incomingMessageAudio: HTMLAudioElement | null = null;
+let scrollPinnedToBottom = true;
 const localAttachmentUrls = new Map<string, string>();
 const locationMaps = new Map<string, { remove(): void }>();
 const flushOutbox = createSingleFlight(flushOutboxBatch);
@@ -229,6 +232,7 @@ async function enterApp() {
     }
     if (message.conversationId === activeId.value) {
       messages.value = reconcileMessage(messages.value, message);
+      void cacheImage(message);
       await scrollToBottom();
     }
     void refreshConversations();
@@ -254,6 +258,7 @@ async function synchronizeAfterReconnect() {
     if (activeId.value === conversationId) {
       messages.value = mergeMessages(messages.value, history);
       await showQueuedMessages(conversationId);
+      void cacheImages(messages.value);
       await scrollToBottom();
     }
   }
@@ -264,6 +269,7 @@ async function openConversation(id: string) {
   const conversation = conversations.value.find((item) => item.id === id);
   if (!conversation) return;
   chatTheme.value = pickChatTheme();
+  revokeAllAttachmentUrls();
   clearLocationMaps();
   activeId.value = id;
   messages.value = [];
@@ -271,9 +277,12 @@ async function openConversation(id: string) {
   if (activeId.value !== id) return;
   messages.value = mergeMessages(messages.value, historySnapshot);
   await showQueuedMessages(id);
+  void cacheImages(messages.value);
   socket?.emit('conversation:join', id);
   history.replaceState({}, '', `/?conversation=${encodeURIComponent(id)}`);
-  await scrollToBottom();
+  await scrollToBottom('auto');
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  await scrollToBottom('auto');
 }
 
 function closeConversation() {
@@ -282,9 +291,22 @@ function closeConversation() {
   history.replaceState({}, '', '/');
 }
 
-async function scrollToBottom() {
+function updateScrollPin() {
+  const list = messageList.value;
+  if (!list) return;
+  scrollPinnedToBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 2;
+}
+
+function maintainPinnedScroll() {
+  if (scrollPinnedToBottom) void scrollToBottom('auto');
+}
+
+async function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
   await nextTick();
-  messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' });
+  const list = messageList.value;
+  if (!list) return;
+  list.scrollTo({ top: list.scrollHeight, behavior });
+  scrollPinnedToBottom = true;
 }
 
 async function sendMessage() {
@@ -358,9 +380,12 @@ async function flushOutboxBatch() {
         const pending = messages.value.find(({ clientId }) => clientId === message.clientId);
         if (pending) pending.deliveryState = state;
       },
-      onDelivered: (message) => {
-        revokeAttachmentUrl(message.clientId);
-        if (message.conversationId === activeId.value) messages.value = reconcileMessage(messages.value, message);
+    onDelivered: (message) => {
+      revokeAttachmentUrl(message.clientId);
+      if (message.conversationId === activeId.value) {
+        messages.value = reconcileMessage(messages.value, message);
+        void cacheImage(message);
+      }
       },
     });
     if (retryAfterMs !== undefined) {
@@ -385,6 +410,7 @@ async function uploadQueuedAttachment(message: QueuedMessage): Promise<MessageSe
       fileName: upload.fileName,
       sha256: upload.sha256,
     });
+    if (persisted.kind === 'IMAGE') void cacheImage(persisted, upload.blob);
     return { ok: true, message: persisted };
   } catch (failure) {
     if (failure instanceof ApiError) return attachmentUploadFailure(failure.status, failure.retryAfterMs);
@@ -396,15 +422,40 @@ function revokeAttachmentUrl(clientId: string) {
   const url = localAttachmentUrls.get(clientId);
   if (url) URL.revokeObjectURL(url);
   localAttachmentUrls.delete(clientId);
+  attachmentUrlRevision.value += 1;
 }
 
 function revokeAllAttachmentUrls() {
   for (const url of localAttachmentUrls.values()) URL.revokeObjectURL(url);
   localAttachmentUrls.clear();
+  attachmentUrlRevision.value += 1;
+}
+
+function setAttachmentUrl(clientId: string, blob: Blob) {
+  revokeAttachmentUrl(clientId);
+  localAttachmentUrls.set(clientId, URL.createObjectURL(blob));
+  attachmentUrlRevision.value += 1;
+}
+
+async function cacheImage(message: Message, source?: Blob) {
+  const attachment = message.attachment;
+  if (!me.value || messageKind(message) !== 'IMAGE' || !attachment || attachment.id.startsWith('queued:') || (!source && localAttachmentUrls.has(message.clientId))) return;
+  try {
+    const blob = source ?? await localImageCache.get(me.value.id, attachment.id) ?? await api.downloadAttachment(attachment.id);
+    await localImageCache.put(me.value.id, attachment.id, blob);
+    if (!localAttachmentUrls.has(message.clientId)) setAttachmentUrl(message.clientId, blob);
+  } catch {
+    // The temporary server copy may already have expired; leave the normal URL as a fallback.
+  }
+}
+
+async function cacheImages(items: Message[]) {
+  await Promise.all(items.map((message) => cacheImage(message)));
 }
 
 function messageKind(message: Message): MessageKind { return message.kind ?? 'TEXT'; }
 function attachmentHref(message: Message): string {
+  void attachmentUrlRevision.value;
   return localAttachmentUrls.get(message.clientId) ?? (message.attachment ? api.attachmentUrl(message.attachment.id) : '#');
 }
 function formatBytes(bytes: number): string {
@@ -634,7 +685,9 @@ async function logout() {
   try { await api.logout(pushEndpoint); }
   catch { error.value = t('logoutFailed'); }
   finally {
-    try { if (userId) await outbox.clearUser(userId); }
+    try {
+      if (userId) await Promise.all([outbox.clearUser(userId), localImageCache.clearUser(userId)]);
+    }
     finally {
       revokeAllAttachmentUrls();
       clearLocationMaps();
@@ -700,10 +753,10 @@ async function logout() {
           <img :src="activeConversation.peer?.avatarUrl || '/icon.svg'" alt="" referrerpolicy="no-referrer">
           <strong>{{ activeConversation.peer?.name }}</strong>
         </header>
-        <div ref="messageList" class="messages" aria-live="polite">
+        <div ref="messageList" class="messages" aria-live="polite" @scroll.passive="updateScrollPin">
           <div v-for="message in messages" :key="message.id" class="message" :class="[{ mine: message.senderId === me.id, failed: message.decryptionFailed || message.deliveryState === 'failed' }, `message--${messageKind(message).toLowerCase()}`]">
             <p v-if="messageKind(message) === 'TEXT'">{{ message.body }}</p>
-            <img v-else-if="messageKind(message) === 'IMAGE' && message.attachment" class="message-image" :src="attachmentHref(message)" :alt="message.attachment.fileName" loading="lazy">
+            <img v-else-if="messageKind(message) === 'IMAGE' && message.attachment" class="message-image" :src="attachmentHref(message)" :alt="message.attachment.fileName" loading="lazy" @load="maintainPinnedScroll">
             <a v-else-if="messageKind(message) === 'DOCUMENT' && message.attachment" class="document-link" :href="attachmentHref(message)" :download="message.attachment.fileName">
               <span aria-hidden="true">▤</span><span><strong>{{ message.attachment.fileName }}</strong><small>{{ formatBytes(message.attachment.byteSize) }}</small></span>
             </a>

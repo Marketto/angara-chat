@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   findMessage: vi.fn(),
   findAttachment: vi.fn(),
   aggregateAttachments: vi.fn(),
+  purgeAttachments: vi.fn(),
   publish: vi.fn(),
   notify: vi.fn(),
   transaction: vi.fn(),
@@ -19,7 +20,7 @@ vi.mock('../src/db.js', () => {
   const db = {
   conversationMember: { findUnique: mocks.membership },
   message: { create: mocks.createMessage, findUnique: mocks.findMessage },
-  messageAttachment: { findFirst: mocks.findAttachment, aggregate: mocks.aggregateAttachments },
+  messageAttachment: { findFirst: mocks.findAttachment, aggregate: mocks.aggregateAttachments, updateMany: mocks.purgeAttachments },
   };
   return { db: { ...db, $transaction: mocks.transaction } };
 });
@@ -164,8 +165,14 @@ describe('attachment HTTP routes', () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ ...message, createdAt: message.createdAt.toISOString() });
     expect(mocks.createMessage).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
-      clientId, kind: 'IMAGE', body: '', attachment: { create: expect.objectContaining({ data: Uint8Array.from(bytes) }) },
+      clientId, kind: 'IMAGE', body: '', attachment: { create: expect.objectContaining({
+        data: Uint8Array.from(bytes), expiresAt: expect.any(Date),
+      }) },
     }) }));
+    expect(mocks.aggregateAttachments).toHaveBeenCalledWith({
+      where: { data: { not: null }, message: { senderId: 'user-1' } },
+      _sum: { byteSize: true },
+    });
     expect(mocks.publish).toHaveBeenCalledWith('conversation-1', message);
     expect(mocks.publish.mock.calls[0]).not.toContain(bytes);
     expect(mocks.notify).toHaveBeenCalledWith('conversation-1', 'user-1', 'Marco', null);
@@ -265,7 +272,10 @@ describe('attachment HTTP routes', () => {
   });
 
   it('authorizes downloads and sets safe image response headers', async () => {
-    mocks.findAttachment.mockResolvedValue({ ...message.attachment, data: bytes, message: { kind: 'IMAGE' } });
+    mocks.findAttachment.mockResolvedValue({
+      ...message.attachment, data: bytes, expiresAt: new Date(Date.now() + 60_000), purgedAt: null,
+      message: { kind: 'IMAGE' },
+    });
     const response = await request('/attachments/attachment-1');
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('image/png');
@@ -276,6 +286,33 @@ describe('attachment HTTP routes', () => {
     expect(mocks.findAttachment).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'attachment-1', message: { conversation: { members: { some: { userId: 'user-1' } } } } },
     }));
+  });
+
+  it('returns 410 and purges bytes opportunistically for an expired image', async () => {
+    const expiresAt = new Date(Date.now() - 1);
+    mocks.findAttachment.mockResolvedValue({
+      ...message.attachment, data: bytes, expiresAt, purgedAt: null, message: { kind: 'IMAGE' },
+    });
+    mocks.purgeAttachments.mockResolvedValue({ count: 1 });
+
+    const response = await request('/attachments/attachment-1');
+
+    expect(response.status).toBe(410);
+    expect(await response.json()).toEqual({ error: 'ATTACHMENT_EXPIRED' });
+    expect(mocks.purgeAttachments).toHaveBeenCalledWith({
+      where: { id: 'attachment-1', data: { not: null } },
+      data: { data: null, purgedAt: expect.any(Date) },
+    });
+  });
+
+  it('preserves document downloads without an expiry', async () => {
+    mocks.findAttachment.mockResolvedValue({
+      id: 'attachment-2', fileName: 'report.pdf', mediaType: 'application/pdf', byteSize: 3,
+      data: Buffer.from('pdf'), expiresAt: null, purgedAt: null, message: { kind: 'DOCUMENT' },
+    });
+    const response = await request('/attachments/attachment-2');
+    expect(response.status).toBe(200);
+    expect(mocks.purgeAttachments).not.toHaveBeenCalled();
   });
 
   it('hides unauthorized downloads and forces documents to download', async () => {

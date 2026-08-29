@@ -44,4 +44,15 @@ describe('attachment API', () => {
       sha256: 'abcdef',
     })).rejects.toMatchObject({ status: 429, retryAfterMs: 12_000 });
   });
+
+  it('downloads an image as a Blob for the account-local cache', async () => {
+    const blob = new Blob(['photo'], { type: 'image/webp' });
+    const fetchMock = vi.fn(async () => new Response(blob, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const downloaded = await api.downloadAttachment('image/1');
+    expect(downloaded.type).toBe('image/webp');
+    await expect(downloaded.text()).resolves.toBe('photo');
+    expect(fetchMock).toHaveBeenCalledWith('/api/attachments/image%2F1', { credentials: 'same-origin' });
+  });
 });

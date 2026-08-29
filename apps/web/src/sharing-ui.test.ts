@@ -25,8 +25,9 @@ describe('sharing UI security invariants', () => {
     expect(app).not.toContain('v-html');
   });
 
-  it('clears queued Blobs and revokes object URLs on logout', () => {
-    expect(app).toContain('await outbox.clearUser(userId)');
+  it('clears queued and received image Blobs and revokes object URLs on logout', () => {
+    expect(app).toContain('outbox.clearUser(userId)');
+    expect(app).toContain('localImageCache.clearUser(userId)');
     expect(app).toContain('revokeAllAttachmentUrls();');
     expect(app).toContain('URL.revokeObjectURL(url)');
   });
