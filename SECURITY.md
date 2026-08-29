@@ -11,6 +11,13 @@
 - Apply firewall rules deliberately; do not expose PostgreSQL or the Node container directly.
 - Add monitoring for disk space, certificate renewal, container health and backup failures.
 
+The optional trial TURN relay is separate from the Angara app and database
+networks. It must keep port 443 for the VPN, expose only 3478 TCP/UDP and its
+documented narrow UDP relay range, use time-limited REST credentials derived
+from a secret kept solely in `.env`, disable its CLI/TLS/TCP relay, and enforce
+its Compose memory/CPU/PID limits. A TURN relay can otherwise be abused as a
+proxy, so stop the trial on unexpected traffic or VPN degradation.
+
 ## Threat model and known gaps
 
 This release protects sessions against JavaScript access, checks same-origin state-changing requests, rate-limits login, verifies Google ID tokens on the server, validates input and authorizes conversation membership.

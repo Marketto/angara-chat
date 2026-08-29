@@ -98,10 +98,13 @@ public tile service.
 ## Deployment
 
 Docker Compose runs PostgreSQL only on `angara-internal`; the app is connected to
-that network and `angara-edge`; Caddy alone publishes ports 80/443 and terminates
-TLS. The production container has a read-only filesystem, a temporary `/tmp`, a
-PID cap, and a Node heap cap. Configuration comes from `.env` and is documented
-by `.env.example`.
+that network and `angara-edge`; Caddy alone publishes Angara HTTP ports and
+terminates TLS. The optional trial TURN relay is isolated on `turn-edge` and
+publishes only TCP/UDP 3478 plus UDP 49160–49175; it does not use port 443 or
+connect to either Angara network. It is limited to four allocations, 96 MiB, and
+0.20 CPU so the VPN retains priority. The production container has a read-only
+filesystem, a temporary `/tmp`, a PID cap, and a Node heap cap. Configuration
+comes from `.env` and is documented by `.env.example`.
 
 ## Deliberate MVP limits
 
