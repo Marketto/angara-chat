@@ -230,9 +230,9 @@ async function enterApp() {
         document.visibilityState === 'visible' && document.hasFocus(),
       );
     }
+    void cacheImage(message, undefined, message.conversationId === activeId.value);
     if (message.conversationId === activeId.value) {
       messages.value = reconcileMessage(messages.value, message);
-      void cacheImage(message);
       await scrollToBottom();
     }
     void refreshConversations();
@@ -437,13 +437,13 @@ function setAttachmentUrl(clientId: string, blob: Blob) {
   attachmentUrlRevision.value += 1;
 }
 
-async function cacheImage(message: Message, source?: Blob) {
+async function cacheImage(message: Message, source?: Blob, retainUrl = true) {
   const attachment = message.attachment;
   if (!me.value || messageKind(message) !== 'IMAGE' || !attachment || attachment.id.startsWith('queued:') || (!source && localAttachmentUrls.has(message.clientId))) return;
   try {
     const blob = source ?? await localImageCache.get(me.value.id, attachment.id) ?? await api.downloadAttachment(attachment.id);
     await localImageCache.put(me.value.id, attachment.id, blob);
-    if (!localAttachmentUrls.has(message.clientId)) setAttachmentUrl(message.clientId, blob);
+    if (retainUrl && !localAttachmentUrls.has(message.clientId)) setAttachmentUrl(message.clientId, blob);
   } catch {
     // The temporary server copy may already have expired; leave the normal URL as a fallback.
   }

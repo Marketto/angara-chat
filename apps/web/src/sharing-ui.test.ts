@@ -32,6 +32,10 @@ describe('sharing UI security invariants', () => {
     expect(app).toContain('URL.revokeObjectURL(url)');
   });
 
+  it('caches received images even when their conversation is not open', () => {
+    expect(app).toContain('cacheImage(message, undefined, message.conversationId === activeId.value)');
+  });
+
   it('keeps Leaflet panes below the share menu, dialogs and toast', () => {
     expect(styles).toMatch(/\.location-map\s*\{[^}]*isolation:\s*isolate/u);
     expect(styles).toMatch(/\.composer\s*\{[^}]*z-index:\s*1100/u);
