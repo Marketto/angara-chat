@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   serverUse: vi.fn(),
   serverOn: vi.fn(),
   serverIn: vi.fn(() => ({ socketsJoin: vi.fn() })),
+  serverTo: vi.fn(),
   roomEmit: vi.fn(),
   findMany: vi.fn(),
   findUnique: vi.fn(),
@@ -18,7 +19,7 @@ vi.mock('socket.io', () => ({
     use = mocks.serverUse;
     on = mocks.serverOn;
     in = mocks.serverIn;
-    to = vi.fn(() => ({ emit: mocks.roomEmit }));
+    to = mocks.serverTo.mockImplementation(() => ({ emit: mocks.roomEmit }));
   },
 }));
 vi.mock('../src/db.js', () => ({
@@ -49,6 +50,7 @@ type Connection = (socket: TestSocket) => void;
 type Handler = (...args: unknown[]) => unknown;
 
 interface TestSocket {
+  id: string;
   data: { user: { id: string; name: string; avatarUrl: null } };
   join: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
@@ -63,10 +65,11 @@ function serverCallbacks() {
   };
 }
 
-function testSocket() {
+function testSocket(user = { id: 'user-1', name: 'Marco', avatarUrl: null }, id = 'socket-1') {
   const handlers = new Map<string, Handler>();
   const socket: TestSocket = {
-    data: { user: { id: 'user-1', name: 'Marco', avatarUrl: null } },
+    id,
+    data: { user },
     join: vi.fn(async () => undefined),
     on: vi.fn((event: string, handler: Handler) => { handlers.set(event, handler); }),
     emit: vi.fn(),
@@ -182,5 +185,54 @@ describe('socket message delivery setup', () => {
     expect(acknowledge).toHaveBeenCalledWith({ ok: true, message });
     expect(mocks.roomEmit).not.toHaveBeenCalled();
     expect(mocks.notifyConversation).not.toHaveBeenCalled();
+  });
+
+  it('relays an offer only to the other member devices and sends the first answer only to the caller socket', async () => {
+    mocks.findMany.mockImplementation(async ({ where }: { where: Record<string, string> }) => (
+      where.conversationId ? [{ userId: 'user-1' }, { userId: 'user-2' }] : []
+    ));
+    const { connection } = serverCallbacks();
+    const caller = testSocket({ id: 'user-1', name: 'Marco', avatarUrl: null }, 'caller-device');
+    const recipientOne = testSocket({ id: 'user-2', name: 'Ada', avatarUrl: null }, 'recipient-one');
+    const recipientTwo = testSocket({ id: 'user-2', name: 'Ada', avatarUrl: null }, 'recipient-two');
+    connection(caller.socket);
+    connection(recipientOne.socket);
+    connection(recipientTwo.socket);
+    await Promise.resolve();
+    const callId = crypto.randomUUID();
+    const offerAck = vi.fn();
+
+    await caller.handlers.get('call:offer')?.({ callId, conversationId: 'conversation-1', sdp: 'v=0\r\noffer' }, offerAck);
+
+    expect(offerAck).toHaveBeenCalledWith({ ok: true });
+    expect(mocks.serverTo).toHaveBeenCalledWith('user:user-2');
+    expect(mocks.roomEmit).toHaveBeenCalledWith('call:offer', { callId, conversationId: 'conversation-1', sdp: 'v=0\r\noffer' });
+    expect(mocks.serverTo).not.toHaveBeenCalledWith('user:user-1');
+    const answerAck = vi.fn();
+
+    await recipientOne.handlers.get('call:answer')?.({ callId, sdp: 'v=0\r\nanswer-one' }, answerAck);
+    await recipientTwo.handlers.get('call:answer')?.({ callId, sdp: 'v=0\r\nanswer-two' }, vi.fn());
+
+    expect(answerAck).toHaveBeenCalledWith({ ok: true });
+    expect(mocks.serverTo).toHaveBeenCalledWith('caller-device');
+    expect(mocks.roomEmit).toHaveBeenCalledWith('call:answer', { callId, sdp: 'v=0\r\nanswer-one' });
+    expect(mocks.roomEmit).not.toHaveBeenCalledWith('call:answer', { callId, sdp: 'v=0\r\nanswer-two' });
+  });
+
+  it('rejects calls from non-members and keeps candidates and hangups between claimed counterparts', async () => {
+    mocks.findUnique.mockResolvedValue(null);
+    const { connection } = serverCallbacks();
+    const attacker = testSocket({ id: 'attacker', name: 'Mallory', avatarUrl: null }, 'attacker-device');
+    connection(attacker.socket);
+    await Promise.resolve();
+    const callId = crypto.randomUUID();
+    const rejected = vi.fn();
+
+    await attacker.handlers.get('call:offer')?.({ callId, conversationId: 'conversation-1', sdp: 'v=0' }, rejected);
+
+    expect(rejected).toHaveBeenCalledWith({ ok: false, error: 'FORBIDDEN' });
+    expect(mocks.roomEmit).not.toHaveBeenCalledWith('call:offer', expect.anything());
+    await attacker.handlers.get('call:candidate')?.({ callId, candidate: 'candidate:unrelated' }, rejected);
+    expect(rejected).toHaveBeenLastCalledWith({ ok: false, error: 'NOT_FOUND' });
   });
 });

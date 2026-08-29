@@ -7,6 +7,14 @@ export const contactDiscoverySchema = z.object({
 });
 export const createConversationSchema = z.object({ participantId: z.string().min(1).max(128) });
 export const conversationIdSchema = z.string().min(1).max(128);
+const callIdSchema = z.string().uuid();
+const opaqueSdpSchema = z.string().min(1).max(16_384);
+const opaqueCandidateSchema = z.string().min(1).max(4_096);
+/** WebRTC negotiation data is opaque to the service and only relayed between authorized peers. */
+export const callOfferSchema = z.object({ callId: callIdSchema, conversationId: conversationIdSchema, sdp: opaqueSdpSchema }).strict();
+export const callAnswerSchema = z.object({ callId: callIdSchema, sdp: opaqueSdpSchema }).strict();
+export const callCandidateSchema = z.object({ callId: callIdSchema, candidate: opaqueCandidateSchema }).strict();
+export const callHangupSchema = z.object({ callId: callIdSchema }).strict();
 const messageIdentity = { conversationId: conversationIdSchema, clientId: z.string().uuid() };
 const textMessageSchema = z.object({
   ...messageIdentity,

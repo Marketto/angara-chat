@@ -1,4 +1,4 @@
-import type { Conversation, Message, PublicConfig, User } from './types';
+import type { Conversation, IceServer, Message, PublicConfig, User } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly retryAfterMs?: number) {
@@ -29,6 +29,7 @@ export const api = {
   logout: (pushEndpoint?: string) => request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ pushEndpoint }) }),
   conversations: () => request<Conversation[]>('/conversations'),
   messages: (id: string) => request<Message[]>(`/conversations/${encodeURIComponent(id)}/messages`),
+  callIce: () => request<{ iceServers: IceServer[] }>('/calls/ice'),
   discover: (emails: string[]) => request<User[]>('/contacts/discover', { method: 'POST', body: JSON.stringify({ emails }) }),
   createConversation: (participantId: string) => request<{ id: string }>('/conversations', { method: 'POST', body: JSON.stringify({ participantId }) }),
   async uploadAttachment(conversationId: string, upload: {

@@ -124,6 +124,15 @@ api.post('/auth/logout', async (request, response) => {
 
 api.use(requireUser);
 api.use(attachmentRoutes);
+api.get('/calls/ice', (_request, response) => {
+  response.setHeader('Cache-Control', 'no-store');
+  if (!config.TURN_URL || !config.TURN_AUTH_SECRET) return response.json({ iceServers: [] });
+  // Coturn's REST authentication uses a short-lived, HMAC-derived password.
+  // The long-lived secret is never sent to clients or logs.
+  const username = `${Math.floor(Date.now() / 1_000) + 300}:${response.locals.user.id}`;
+  const credential = createHmac('sha1', config.TURN_AUTH_SECRET).update(username).digest('base64');
+  return response.json({ iceServers: [{ urls: [config.TURN_URL], username, credential }] });
+});
 api.post('/client-logs', (request, response) => {
   const input = clientLogSchema.safeParse(request.body);
   if (!input.success) return response.status(400).json({ error: 'INVALID_LOG' });
