@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  callAnswerSchema, callCandidateSchema, callHangupSchema, callOfferSchema,
-  contactDiscoverySchema, logoutSchema, plaintextMessageSchema, pushEndpointSchema, pushSubscriptionSchema,
-} from '../src/schemas.js';
+import { contactDiscoverySchema, logoutSchema, plaintextMessageSchema, pushEndpointSchema, pushSubscriptionSchema } from '../src/schemas.js';
 
 describe('plaintext message schema', () => {
   it('accepts bounded text and rejects blank or oversized bodies', () => {
@@ -74,23 +71,5 @@ describe('push endpoint schema', () => {
   it('accepts a bounded HTTPS endpoint for device-specific removal', () => {
     expect(pushEndpointSchema.parse({ endpoint: 'https://fcm.googleapis.com/fcm/send/device' })).toEqual({ endpoint: 'https://fcm.googleapis.com/fcm/send/device' });
     expect(pushEndpointSchema.safeParse({ endpoint: 'not-a-url' }).success).toBe(false);
-  });
-});
-
-describe('call signalling schemas', () => {
-  const callId = crypto.randomUUID();
-
-  it('accepts opaque, bounded SDP and ICE payloads without interpreting their contents', () => {
-    expect(callOfferSchema.safeParse({ callId, conversationId: 'conversation-1', sdp: 'v=0\r\na=ice-ufrag:opaque' }).success).toBe(true);
-    expect(callAnswerSchema.safeParse({ callId, sdp: 'v=0\r\na=setup:active' }).success).toBe(true);
-    expect(callCandidateSchema.safeParse({ callId, candidate: 'candidate:1 1 UDP 1 192.0.2.1 9 typ host' }).success).toBe(true);
-    expect(callHangupSchema.safeParse({ callId }).success).toBe(true);
-  });
-
-  it('rejects malformed and oversized signalling data', () => {
-    expect(callOfferSchema.safeParse({ callId: 'not-a-uuid', conversationId: 'conversation-1', sdp: 'v=0' }).success).toBe(false);
-    expect(callOfferSchema.safeParse({ callId, conversationId: 'conversation-1', sdp: 'x'.repeat(16_385) }).success).toBe(false);
-    expect(callCandidateSchema.safeParse({ callId, candidate: 'x'.repeat(4_097) }).success).toBe(false);
-    expect(callAnswerSchema.safeParse({ callId, sdp: '' }).success).toBe(false);
   });
 });

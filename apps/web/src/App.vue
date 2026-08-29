@@ -43,10 +43,6 @@ const documentInput = ref<HTMLInputElement | null>(null);
 const pendingAttachment = ref<{ conversationId: string; kind: AttachmentKind; file: File; sha256: string } | null>(null);
 const pendingLocation = ref<{ conversationId: string; latitude: number; longitude: number; accuracy?: number } | null>(null);
 const locating = ref(false);
-const incomingCall = ref<{ callId: string; conversationId: string; sdp: string } | null>(null);
-const callId = ref<string | null>(null);
-const callStatus = ref<'calling' | 'connected' | 'incoming' | null>(null);
-const remoteAudio = ref<HTMLAudioElement | null>(null);
 const loadedLocationMapIds = ref<Set<string>>(new Set());
 const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
 const imageAccept = IMAGE_MIME_TYPES.join(',');
@@ -56,9 +52,6 @@ let outboxRetryTimer: number | undefined;
 let socketReconnectTimer: number | undefined;
 let lastSubmission: MessageSubmission | null = null;
 let incomingMessageAudio: HTMLAudioElement | null = null;
-let peerConnection: RTCPeerConnection | null = null;
-let localCallStream: MediaStream | null = null;
-let pendingCallCandidates: RTCIceCandidateInit[] = [];
 let scrollPinnedToBottom = true;
 const localAttachmentUrls = new Map<string, string>();
 const locationMaps = new Map<string, { remove(): void }>();
@@ -100,7 +93,6 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  stopCall(false);
   clearOutboxRetry();
   clearSocketReconnect();
   socket?.disconnect();
@@ -115,95 +107,6 @@ onBeforeUnmount(() => {
   revokeAllAttachmentUrls();
   clearLocationMaps();
 });
-
-function emitCall(event: string, payload: Record<string, string>) {
-  return new Promise<{ ok: boolean }>((resolve) => socket?.timeout(10_000).emit(event, payload, (timeout: Error | null, result?: { ok: boolean }) => resolve(timeout ? { ok: false } : result ?? { ok: false })));
-}
-
-function closePeerConnection() {
-  peerConnection?.close();
-  peerConnection = null;
-  localCallStream?.getTracks().forEach((track) => track.stop());
-  localCallStream = null;
-  pendingCallCandidates = [];
-  if (remoteAudio.value) remoteAudio.value.srcObject = null;
-}
-
-function stopCall(notify = true) {
-  const id = callId.value;
-  if (notify && id) void emitCall('call:hangup', { callId: id });
-  closePeerConnection();
-  callId.value = null;
-  callStatus.value = null;
-  incomingCall.value = null;
-}
-
-async function createPeerConnection(id: string) {
-  const { iceServers } = await api.callIce();
-  const peer = new RTCPeerConnection({ iceServers });
-  peerConnection = peer;
-  peer.onicecandidate = ({ candidate }) => {
-    if (!candidate) return;
-    const value = candidate.toJSON();
-    if (callStatus.value === 'connected') void emitCall('call:candidate', { callId: id, candidate: JSON.stringify(value) });
-    else pendingCallCandidates.push(value);
-  };
-  peer.ontrack = ({ streams }) => {
-    if (remoteAudio.value && streams[0]) {
-      remoteAudio.value.srcObject = streams[0];
-      void remoteAudio.value.play().catch(() => undefined);
-    }
-  };
-  localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  localCallStream.getTracks().forEach((track) => peer.addTrack(track, localCallStream!));
-  return peer;
-}
-
-async function flushCallCandidates() {
-  const id = callId.value;
-  if (!id) return;
-  const candidates = pendingCallCandidates;
-  pendingCallCandidates = [];
-  for (const candidate of candidates) await emitCall('call:candidate', { callId: id, candidate: JSON.stringify(candidate) });
-}
-
-async function startCall() {
-  if (!activeId.value || !socket?.connected || callId.value) return;
-  try {
-    const id = crypto.randomUUID();
-    callId.value = id;
-    callStatus.value = 'calling';
-    const peer = await createPeerConnection(id);
-    const offer = await peer.createOffer({ offerToReceiveAudio: true });
-    await peer.setLocalDescription(offer);
-    const sent = await emitCall('call:offer', { callId: id, conversationId: activeId.value, sdp: offer.sdp ?? '' });
-    if (!sent.ok) throw new Error('CALL_UNAVAILABLE');
-  } catch {
-    stopCall(false);
-    error.value = t('callFailed');
-  }
-}
-
-async function acceptCall() {
-  const incoming = incomingCall.value;
-  if (!incoming || callId.value) return;
-  try {
-    callId.value = incoming.callId;
-    callStatus.value = 'incoming';
-    const peer = await createPeerConnection(incoming.callId);
-    await peer.setRemoteDescription({ type: 'offer', sdp: incoming.sdp });
-    const answer = await peer.createAnswer();
-    await peer.setLocalDescription(answer);
-    const sent = await emitCall('call:answer', { callId: incoming.callId, sdp: answer.sdp ?? '' });
-    if (!sent.ok) throw new Error('CALL_UNAVAILABLE');
-    callStatus.value = 'connected';
-    incomingCall.value = null;
-    await flushCallCandidates();
-  } catch {
-    stopCall(false);
-    error.value = t('callFailed');
-  }
-}
 
 function audioForIncomingMessages() {
   if (!incomingMessageAudio) {
@@ -335,28 +238,6 @@ async function enterApp() {
     void refreshConversations();
   });
   socket.on('conversation:new', () => { void refreshConversations(); });
-  socket.on('call:offer', (offer: { callId: string; conversationId: string; sdp: string }) => {
-    if (!callId.value) {
-      incomingCall.value = offer;
-      callStatus.value = 'incoming';
-    }
-  });
-  socket.on('call:answer', async (answer: { callId: string; sdp: string }) => {
-    if (answer.callId !== callId.value || !peerConnection) return;
-    try {
-      await peerConnection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
-      callStatus.value = 'connected';
-      await flushCallCandidates();
-    } catch { stopCall(false); error.value = t('callFailed'); }
-  });
-  socket.on('call:candidate', async (signal: { callId: string; candidate: string }) => {
-    if (signal.callId !== callId.value || !peerConnection) return;
-    try { await peerConnection.addIceCandidate(JSON.parse(signal.candidate) as RTCIceCandidateInit); }
-    catch { stopCall(false); error.value = t('callFailed'); }
-  });
-  socket.on('call:ended', (event: { callId: string }) => {
-    if (event.callId === callId.value || event.callId === incomingCall.value?.callId) stopCall(false);
-  });
   const fromUrl = new URL(location.href).searchParams.get('conversation');
   if (fromUrl && conversations.value.some(({ id }) => id === fromUrl)) await openConversation(fromUrl);
 }
@@ -871,7 +752,6 @@ async function logout() {
           <button class="back" :aria-label="t('back')" @click="closeConversation">‹</button>
           <img :src="activeConversation.peer?.avatarUrl || '/icon.svg'" alt="" referrerpolicy="no-referrer">
           <strong>{{ activeConversation.peer?.name }}</strong>
-          <button class="call-button" :disabled="Boolean(callId)" :aria-label="t('startCall')" :title="t('startCall')" @click="startCall">☎</button>
         </header>
         <div ref="messageList" class="messages" aria-live="polite" @scroll.passive="updateScrollPin">
           <div v-for="message in messages" :key="message.id" class="message" :class="[{ mine: message.senderId === me.id, failed: message.decryptionFailed || message.deliveryState === 'failed' }, `message--${messageKind(message).toLowerCase()}`]">
@@ -935,15 +815,6 @@ async function logout() {
         <div class="confirmation-actions"><button class="quiet" @click="pendingLocation = null">{{ t('cancel') }}</button><button class="primary" @click="confirmLocation">{{ t('sendLocation') }}</button></div>
       </section>
     </div>
-    <div v-if="incomingCall" class="modal-backdrop" @click.self="stopCall(false)">
-      <section class="dialog-card confirmation-card" role="dialog" aria-modal="true" aria-labelledby="call-title">
-        <p class="eyebrow">{{ t('audioCall') }}</p><h2 id="call-title">{{ t('incomingCall') }}</h2>
-        <p>{{ t('callPrivacy') }}</p>
-        <div class="confirmation-actions"><button class="quiet" @click="stopCall(false)">{{ t('cancel') }}</button><button class="primary" @click="acceptCall">{{ t('answerCall') }}</button></div>
-      </section>
-    </div>
-    <div v-if="callId && !incomingCall" class="call-banner" role="status"><span>{{ callStatus === 'calling' ? t('calling') : t('callConnected') }}</span><button class="quiet" @click="stopCall()">{{ t('endCall') }}</button></div>
-    <audio ref="remoteAudio" autoplay></audio>
     <p v-if="error" class="toast" role="alert" @click="error = ''">{{ error }}</p>
   </main>
 </template>

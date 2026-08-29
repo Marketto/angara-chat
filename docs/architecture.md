@@ -106,12 +106,6 @@ connect to either Angara network. It is limited to four allocations, 96 MiB, and
 filesystem, a temporary `/tmp`, a PID cap, and a Node heap cap. Configuration
 comes from `.env` and is documented by `.env.example`.
 
-Audio calls use browser WebRTC. Socket.IO relays bounded opaque SDP and ICE only
-after session and direct-conversation membership checks; call state is in memory
-only, offers expire after 30 seconds, and the first receiving device to answer
-claims the call. The API supplies short-lived TURN REST credentials to a
-signed-in caller, never the TURN secret. Audio is not persisted by Angara.
-
 ## Deliberate MVP limits
 
 This release does not provide E2EE, encryption at rest, forward secrecy, or
@@ -119,6 +113,3 @@ post-compromise security. TLS protects network transport only. A compromised
 server, database, backup, or authorized operator can access message text,
 attachment contents and metadata, and exact shared coordinates. See [message
 privacy details](e2ee.md) and [the security policy](../SECURITY.md).
-WebRTC media uses DTLS-SRTP in supported browsers, but Angara makes no
-end-to-end encryption claim for calls; network peers and the TURN relay can
-observe connection metadata.

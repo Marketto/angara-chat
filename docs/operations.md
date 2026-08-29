@@ -33,13 +33,11 @@ HTTP-only `state` cookie before creating the normal session.
 
 ## Trial TURN relay without disturbing the VPN
 
-The optional `turn` Compose service is a constrained relay for Angara audio
-calls. It does not use port 443, Caddy, the VPN network,
+The optional `turn` Compose service is a constrained relay trial; it does not
+enable calling UI by itself. It does not use port 443, Caddy, the VPN network,
 or the Angara app/database networks. Set `TURN_LISTEN_IP` to the public host
-IPv4, set `TURN_URL` to its public `turn:` URL, and generate a random
-`TURN_AUTH_SECRET` only in the VPS `.env`; never use a VPN/private address or
-commit either value. The API derives a five-minute credential for signed-in
-callers and never returns the secret. It publishes only TCP/UDP 3478
+IPv4 and generate a random `TURN_AUTH_SECRET` only in the VPS `.env`; never use
+a VPN/private address or commit either value. It publishes only TCP/UDP 3478
 and UDP 49160–49175, with a maximum of four allocations (at most two calls).
 
 Before and after starting it, record `free -h`, `docker stats --no-stream`,

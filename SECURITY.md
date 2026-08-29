@@ -18,13 +18,6 @@ from a secret kept solely in `.env`, disable its CLI/TLS/TCP relay, and enforce
 its Compose memory/CPU/PID limits. A TURN relay can otherwise be abused as a
 proxy, so stop the trial on unexpected traffic or VPN degradation.
 
-Audio-call SDP and ICE candidates can contain network identifiers. They are
-validated to fixed bounds, relayed only between authenticated members of the
-same direct conversation, held only in process memory, and never logged or
-stored. A receiving account may have multiple devices, but only the first one
-to answer receives the caller's subsequent signaling. Calls use browser
-DTLS-SRTP transport; Angara does not claim end-to-end encryption for call media.
-
 ## Threat model and known gaps
 
 This release protects sessions against JavaScript access, checks same-origin state-changing requests, rate-limits login, verifies Google ID tokens on the server, validates input and authorizes conversation membership.

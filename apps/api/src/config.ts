@@ -17,8 +17,6 @@ const schema = z.object({
   COOKIE_SECURE: bool.default(true),
   BUILD_VERSION: z.string().min(1).max(100).default('dev'),
   TEST_AUTH_TOKEN: z.string().min(32).optional(),
-  TURN_URL: z.string().url().optional(),
-  TURN_AUTH_SECRET: z.string().min(32).optional(),
 });
 
 export const config = schema.parse(process.env);
