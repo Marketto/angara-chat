@@ -14,7 +14,6 @@ test('trial TURN stays off the VPN port and is resource constrained', () => {
   assert.match(compose, /--total-quota=4/);
   assert.match(compose, /--bps-capacity=128000/);
   assert.match(compose, /--no-stun/);
-  assert.doesNotMatch(compose, /--no-loopback-peers/);
   assert.match(compose, /cap_add: \[NET_BIND_SERVICE\]/);
   assert.match(compose, /cap_drop: \[ALL\]/);
   assert.match(compose, /mem_limit: 96m/);

@@ -106,6 +106,7 @@ services:
       - --no-tcp-relay
       - --no-tls
       - --no-dtls
+      - --no-loopback-peers
       - --no-multicast-peers
       - --no-software-attribute
       - --relay-threads=1
