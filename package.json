@@ -8,7 +8,7 @@
     "build": "pnpm -r build",
     "dev": "pnpm --parallel -r dev",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r --workspace-concurrency=1 test && node --test deploy/caddyfile.test.mjs",
+    "test": "pnpm -r --workspace-concurrency=1 test && node --test deploy/*.test.mjs",
     "typecheck": "pnpm -r typecheck",
     "db:generate": "pnpm --filter @angara/api db:generate",
     "db:migrate": "pnpm --filter @angara/api db:migrate"

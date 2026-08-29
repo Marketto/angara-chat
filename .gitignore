@@ -20,6 +20,7 @@ credentials/
 *.zip
 .DS_Store
 apps/api/prisma/dev.db*
+apps/api/generated/
 apps/web/public/sw.js
 apps/web/public/workbox-*.js
 apps/web/public/registerSW.js
