@@ -61,4 +61,11 @@ describe('message reconciliation', () => {
 
     expect(mergeMessages([], [first, repeated])).toEqual([first, repeated]);
   });
+
+  it('never collapses distinct non-text messages with an empty body', () => {
+    const first = { ...persisted, id: 'image-first', clientId: 'image-client-first', kind: 'IMAGE' as const, body: '', createdAt: '2026-08-28T17:37:45.454Z' };
+    const second = { ...persisted, id: 'image-second', clientId: 'image-client-second', kind: 'IMAGE' as const, body: '', createdAt: '2026-08-28T17:37:45.584Z' };
+
+    expect(mergeMessages([], [first, second])).toEqual([first, second]);
+  });
 });

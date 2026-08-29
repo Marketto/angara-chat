@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { io, type Socket } from 'socket.io-client';
-import { api } from './api';
+import 'leaflet/dist/leaflet.css';
+import { ApiError, api } from './api';
 import { contactEmails, gmailEmails } from './contacts';
 import { claimDraft, isRapidDuplicateSubmission, restoreDraft, type MessageSubmission } from './message-submit';
 import { createIncomingMessageSound } from './message-sound';
@@ -14,7 +15,8 @@ import { createSingleFlight } from './single-flight';
 import { locale, supportedLocales, t, type Locale } from './i18n';
 import { updateWhenBackendChanges } from './pwa-update';
 import { pickChatTheme, type ChatTheme } from './chat-themes';
-import type { Conversation, DecryptedMessage, InstallPromptEvent, Message, MessageSendAcknowledgement, PermanentMessageSendError, PublicConfig, User } from './types';
+import { attachmentUploadFailure, deliverQueuedMessage, DOCUMENT_MIME_TYPES, IMAGE_MIME_TYPES, openStreetMapUrl, sha256Hex, validateAttachment, type AttachmentKind } from './sharing';
+import type { Conversation, DecryptedMessage, InstallPromptEvent, Message, MessageSendAcknowledgement, MessageKind, PermanentMessageSendError, PublicConfig, User } from './types';
 
 const me = ref<User | null>(null);
 const config = ref<PublicConfig | null>(null);
@@ -33,12 +35,23 @@ const pushPending = ref(false);
 const messageList = ref<HTMLElement | null>(null);
 const deferredInstallPrompt = ref<InstallPromptEvent | null>(null);
 const chatTheme = ref<ChatTheme>(pickChatTheme());
+const showShareMenu = ref(false);
+const photoInput = ref<HTMLInputElement | null>(null);
+const documentInput = ref<HTMLInputElement | null>(null);
+const pendingAttachment = ref<{ conversationId: string; kind: AttachmentKind; file: File; sha256: string } | null>(null);
+const pendingLocation = ref<{ conversationId: string; latitude: number; longitude: number; accuracy?: number } | null>(null);
+const locating = ref(false);
+const loadedLocationMapIds = ref<Set<string>>(new Set());
 const canInstall = computed(() => Boolean(deferredInstallPrompt.value));
+const imageAccept = IMAGE_MIME_TYPES.join(',');
+const documentAccept = DOCUMENT_MIME_TYPES.join(',');
 let socket: Socket | null = null;
 let outboxRetryTimer: number | undefined;
 let socketReconnectTimer: number | undefined;
 let lastSubmission: MessageSubmission | null = null;
 let incomingMessageAudio: HTMLAudioElement | null = null;
+const localAttachmentUrls = new Map<string, string>();
+const locationMaps = new Map<string, { remove(): void }>();
 const flushOutbox = createSingleFlight(flushOutboxBatch);
 const outboxWakeup = createOutboxWakeup({
   isConnected: () => Boolean(socket?.connected),
@@ -88,6 +101,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('online', retryOutbox);
   window.removeEventListener('online', refreshPushState);
   document.removeEventListener('visibilitychange', retryVisibleOutbox);
+  revokeAllAttachmentUrls();
+  clearLocationMaps();
 });
 
 function audioForIncomingMessages() {
@@ -249,6 +264,7 @@ async function openConversation(id: string) {
   const conversation = conversations.value.find((item) => item.id === id);
   if (!conversation) return;
   chatTheme.value = pickChatTheme();
+  clearLocationMaps();
   activeId.value = id;
   messages.value = [];
   const historySnapshot = await api.messages(id);
@@ -261,6 +277,7 @@ async function openConversation(id: string) {
 }
 
 function closeConversation() {
+  clearLocationMaps();
   activeId.value = null;
   history.replaceState({}, '', '/');
 }
@@ -289,14 +306,28 @@ async function sendMessage() {
 }
 
 function createQueuedMessage(conversationId: string, body: string): QueuedMessage {
-  return { clientId: crypto.randomUUID(), conversationId, userId: me.value!.id, body, createdAt: new Date().toISOString() };
+  return { clientId: crypto.randomUUID(), conversationId, userId: me.value!.id, kind: 'TEXT', body, createdAt: new Date().toISOString() };
+}
+
+function optimisticMessage(message: QueuedMessage): Message {
+  const attachment = message.attachmentUpload ? {
+    id: `queued:${message.clientId}`,
+    fileName: message.attachmentUpload.fileName,
+    mediaType: message.attachmentUpload.mediaType,
+    byteSize: message.attachmentUpload.byteSize,
+    sha256: message.attachmentUpload.sha256,
+  } : undefined;
+  if (message.attachmentUpload && !localAttachmentUrls.has(message.clientId)) {
+    localAttachmentUrls.set(message.clientId, URL.createObjectURL(message.attachmentUpload.blob));
+  }
+  return { id: `queued:${message.clientId}`, ...message, senderId: me.value!.id, attachment };
 }
 
 async function queueMessage(message: QueuedMessage) {
   if ((await outbox.forUser(message.userId)).length >= 500) throw new Error('OUTBOX_FULL');
   await outbox.put(message);
   if (message.conversationId === activeId.value && !messages.value.some(({ clientId }) => clientId === message.clientId)) {
-    messages.value = reconcileMessage(messages.value, { id: `queued:${message.clientId}`, ...message, senderId: me.value!.id, deliveryState: socket?.connected ? 'sending' : 'queued' });
+    messages.value = reconcileMessage(messages.value, { ...optimisticMessage(message), deliveryState: socket?.connected ? 'sending' : 'queued' });
     await scrollToBottom();
   }
 }
@@ -305,7 +336,7 @@ async function showQueuedMessages(conversationId: string) {
   if (!me.value) return;
   const queued = await outbox.forUser(me.value.id);
   for (const message of queued.filter((item) => item.conversationId === conversationId)) {
-    messages.value = reconcileMessage(messages.value, { id: `queued:${message.clientId}`, ...message, senderId: me.value.id, deliveryState: message.failure ? 'failed' : socket?.connected ? 'sending' : 'queued' });
+    messages.value = reconcileMessage(messages.value, { ...optimisticMessage(message), deliveryState: message.failure ? 'failed' : socket?.connected ? 'sending' : 'queued' });
   }
 }
 
@@ -315,8 +346,11 @@ async function flushOutboxBatch() {
   try {
     const { retryAfterMs } = await deliverQueuedMessages({
       messages: await outbox.forUser(me.value.id),
-      send: (message) => new Promise<MessageSendAcknowledgement | null>((resolve) => {
-        socket!.timeout(10_000).emit('message:send', message, (timeout: Error | null, acknowledgement?: MessageSendAcknowledgement) => resolve(timeout ? null : acknowledgement ?? null));
+      send: (message) => deliverQueuedMessage(message, {
+        upload: uploadQueuedAttachment,
+        sendSocket: (queued) => new Promise<MessageSendAcknowledgement | null>((resolve) => {
+          socket!.timeout(10_000).emit('message:send', queued, (timeout: Error | null, acknowledgement?: MessageSendAcknowledgement) => resolve(timeout ? null : acknowledgement ?? null));
+        }),
       }),
       remove: (clientId) => outbox.remove(clientId),
       markFailed: (message, failure: PermanentMessageSendError) => outbox.put({ ...message, failure }),
@@ -325,6 +359,7 @@ async function flushOutboxBatch() {
         if (pending) pending.deliveryState = state;
       },
       onDelivered: (message) => {
+        revokeAttachmentUrl(message.clientId);
         if (message.conversationId === activeId.value) messages.value = reconcileMessage(messages.value, message);
       },
     });
@@ -337,6 +372,170 @@ async function flushOutboxBatch() {
     scheduleOutboxRetry(3_000);
     return false;
   }
+}
+
+async function uploadQueuedAttachment(message: QueuedMessage): Promise<MessageSendAcknowledgement | null> {
+  const upload = message.attachmentUpload;
+  if (!upload || (message.kind !== 'IMAGE' && message.kind !== 'DOCUMENT')) return null;
+  try {
+    const persisted = await api.uploadAttachment(message.conversationId, {
+      clientId: message.clientId,
+      kind: message.kind,
+      blob: upload.blob,
+      fileName: upload.fileName,
+      sha256: upload.sha256,
+    });
+    return { ok: true, message: persisted };
+  } catch (failure) {
+    if (failure instanceof ApiError) return attachmentUploadFailure(failure.status, failure.retryAfterMs);
+    return null;
+  }
+}
+
+function revokeAttachmentUrl(clientId: string) {
+  const url = localAttachmentUrls.get(clientId);
+  if (url) URL.revokeObjectURL(url);
+  localAttachmentUrls.delete(clientId);
+}
+
+function revokeAllAttachmentUrls() {
+  for (const url of localAttachmentUrls.values()) URL.revokeObjectURL(url);
+  localAttachmentUrls.clear();
+}
+
+function messageKind(message: Message): MessageKind { return message.kind ?? 'TEXT'; }
+function attachmentHref(message: Message): string {
+  return localAttachmentUrls.get(message.clientId) ?? (message.attachment ? api.attachmentUrl(message.attachment.id) : '#');
+}
+function formatBytes(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function selectAttachment(event: Event, kind: AttachmentKind) {
+  showShareMenu.value = false;
+  const conversationId = activeId.value;
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !conversationId) return;
+  const validation = await validateAttachment(file, kind);
+  if (validation) {
+    error.value = t(validation === 'TOO_LARGE' ? 'attachmentTooLarge' : 'attachmentTypeUnsupported');
+    return;
+  }
+  try {
+    pendingAttachment.value = { conversationId, kind, file, sha256: await sha256Hex(file) };
+  } catch {
+    error.value = t('attachmentFailed');
+  }
+}
+
+async function confirmAttachment() {
+  const pending = pendingAttachment.value;
+  if (!pending || !me.value) return;
+  const queued: QueuedMessage = {
+    clientId: crypto.randomUUID(),
+    conversationId: pending.conversationId,
+    userId: me.value.id,
+    kind: pending.kind,
+    body: '',
+    createdAt: new Date().toISOString(),
+    attachmentUpload: {
+      blob: pending.file,
+      fileName: pending.file.name,
+      mediaType: pending.file.type,
+      byteSize: pending.file.size,
+      sha256: pending.sha256,
+    },
+  };
+  pendingAttachment.value = null;
+  try { await queueMessage(queued); }
+  catch {
+    revokeAttachmentUrl(queued.clientId);
+    error.value = t('attachmentFailed');
+    return;
+  }
+  void flushOutbox();
+}
+
+function requestLocation() {
+  showShareMenu.value = false;
+  const conversationId = activeId.value;
+  if (!conversationId || !navigator.geolocation || locating.value) {
+    error.value = t('locationUnavailable');
+    return;
+  }
+  locating.value = true;
+  navigator.geolocation.getCurrentPosition(
+    ({ coords }) => {
+      locating.value = false;
+      pendingLocation.value = {
+        conversationId,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        ...(Number.isFinite(coords.accuracy) ? { accuracy: coords.accuracy } : {}),
+      };
+    },
+    () => { locating.value = false; error.value = t('locationFailed'); },
+    { enableHighAccuracy: true, timeout: 12_000, maximumAge: 0 },
+  );
+}
+
+async function confirmLocation() {
+  const location = pendingLocation.value;
+  if (!location || !me.value) return;
+  const queued: QueuedMessage = {
+    clientId: crypto.randomUUID(),
+    conversationId: location.conversationId,
+    userId: me.value.id,
+    kind: 'LOCATION',
+    body: '',
+    createdAt: new Date().toISOString(),
+    locationLatitude: location.latitude,
+    locationLongitude: location.longitude,
+    ...(location.accuracy !== undefined ? { locationAccuracy: location.accuracy } : {}),
+  };
+  pendingLocation.value = null;
+  try { await queueMessage(queued); }
+  catch { error.value = t('locationFailed'); return; }
+  void flushOutbox();
+}
+
+function locationMapId(message: Message) { return `location-map-${message.clientId.replace(/[^a-zA-Z0-9_-]/g, '')}`; }
+function hasLoadedLocationMap(message: Message) { return loadedLocationMapIds.value.has(message.clientId); }
+
+async function loadLocationMap(message: Message) {
+  const latitude = message.locationLatitude;
+  const longitude = message.locationLongitude;
+  if (latitude == null || longitude == null || locationMaps.has(message.clientId)) return;
+  loadedLocationMapIds.value = new Set([...loadedLocationMapIds.value, message.clientId]);
+  await nextTick();
+  const container = document.getElementById(locationMapId(message));
+  if (!container) return;
+  let pendingMap: { remove(): void } | undefined;
+  try {
+    const L = await import('leaflet');
+    const map = L.map(container, { scrollWheelZoom: false }).setView([latitude, longitude], 16);
+    pendingMap = map;
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
+    L.circleMarker([latitude, longitude], { radius: 8, color: '#8c2338', fillColor: '#a8334a', fillOpacity: 0.9 }).addTo(map);
+    locationMaps.set(message.clientId, map);
+  } catch {
+    pendingMap?.remove();
+    const next = new Set(loadedLocationMapIds.value);
+    next.delete(message.clientId);
+    loadedLocationMapIds.value = next;
+    error.value = t('mapFailed');
+  }
+}
+
+function clearLocationMaps() {
+  for (const map of locationMaps.values()) map.remove();
+  locationMaps.clear();
+  loadedLocationMapIds.value = new Set();
 }
 
 
@@ -431,8 +630,16 @@ async function logout() {
   let pushEndpoint: string | undefined;
   try { pushEndpoint = await currentPushEndpoint(); }
   catch { /* Logout still invalidates this session if browser push lookup fails. */ }
-  await api.logout(pushEndpoint);
-  if (me.value) await outbox.clearUser(me.value.id);
+  const userId = me.value?.id;
+  try { await api.logout(pushEndpoint); }
+  catch { error.value = t('logoutFailed'); }
+  finally {
+    try { if (userId) await outbox.clearUser(userId); }
+    finally {
+      revokeAllAttachmentUrls();
+      clearLocationMaps();
+    }
+  }
   socket?.disconnect();
   me.value = null;
   activeId.value = null;
@@ -494,13 +701,33 @@ async function logout() {
           <strong>{{ activeConversation.peer?.name }}</strong>
         </header>
         <div ref="messageList" class="messages" aria-live="polite">
-          <div v-for="message in messages" :key="message.id" class="message" :class="{ mine: message.senderId === me.id, failed: message.decryptionFailed || message.deliveryState === 'failed' }">
-            <p>{{ message.body }}</p><time>{{ new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}<span v-if="message.senderId === me.id" class="message-status" :class="message.deliveryState || 'sent'" :aria-label="message.deliveryState === 'failed' ? 'Invio non riuscito' : message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'" :title="message.deliveryState === 'failed' ? 'Invio non riuscito' : message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'">{{ message.deliveryState === 'failed' ? '!' : message.deliveryState === 'queued' ? '📡̸' : message.deliveryState === 'sending' ? '◷' : '✓✓' }}</span></time>
+          <div v-for="message in messages" :key="message.id" class="message" :class="[{ mine: message.senderId === me.id, failed: message.decryptionFailed || message.deliveryState === 'failed' }, `message--${messageKind(message).toLowerCase()}`]">
+            <p v-if="messageKind(message) === 'TEXT'">{{ message.body }}</p>
+            <img v-else-if="messageKind(message) === 'IMAGE' && message.attachment" class="message-image" :src="attachmentHref(message)" :alt="message.attachment.fileName" loading="lazy">
+            <a v-else-if="messageKind(message) === 'DOCUMENT' && message.attachment" class="document-link" :href="attachmentHref(message)" :download="message.attachment.fileName">
+              <span aria-hidden="true">▤</span><span><strong>{{ message.attachment.fileName }}</strong><small>{{ formatBytes(message.attachment.byteSize) }}</small></span>
+            </a>
+            <div v-else-if="messageKind(message) === 'LOCATION' && message.locationLatitude != null && message.locationLongitude != null" class="location-card">
+              <strong>{{ t('sharedLocation') }}</strong>
+              <small>{{ message.locationLatitude.toFixed(5) }}, {{ message.locationLongitude.toFixed(5) }}<template v-if="message.locationAccuracy != null"> · ±{{ Math.round(message.locationAccuracy) }} m</template></small>
+              <div v-if="hasLoadedLocationMap(message)" :id="locationMapId(message)" class="location-map" :aria-label="t('sharedLocation')"></div>
+              <button v-else type="button" class="map-consent" @click="loadLocationMap(message)">{{ t('loadMap') }}<small>{{ t('osmPrivacy') }}</small></button>
+              <a :href="openStreetMapUrl(message.locationLatitude, message.locationLongitude)" target="_blank" rel="noopener noreferrer">{{ t('openInOsm') }}</a>
+            </div>
+            <time>{{ new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}<span v-if="message.senderId === me.id" class="message-status" :class="message.deliveryState || 'sent'" :aria-label="message.deliveryState === 'failed' ? 'Invio non riuscito' : message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'" :title="message.deliveryState === 'failed' ? 'Invio non riuscito' : message.deliveryState === 'queued' ? 'In attesa della rete' : message.deliveryState === 'sending' ? 'Invio in corso' : 'Consegnato al server'">{{ message.deliveryState === 'failed' ? '!' : message.deliveryState === 'queued' ? '📡̸' : message.deliveryState === 'sending' ? '◷' : '✓✓' }}</span></time>
           </div>
         </div>
         <form class="composer" @submit.prevent="sendMessage">
+          <button type="button" class="share-button" :aria-label="t('share')" :aria-expanded="showShareMenu" @click="showShareMenu = !showShareMenu">＋</button>
+          <div v-if="showShareMenu" class="share-menu">
+            <button type="button" @click="photoInput?.click()"><span aria-hidden="true">▧</span>{{ t('photo') }}</button>
+            <button type="button" @click="documentInput?.click()"><span aria-hidden="true">▤</span>{{ t('document') }}</button>
+            <button type="button" :disabled="locating" @click="requestLocation"><span aria-hidden="true">⌖</span>{{ locating ? t('locating') : t('location') }}</button>
+          </div>
+          <input ref="photoInput" class="visually-hidden" type="file" :accept="imageAccept" @change="selectAttachment($event, 'IMAGE')">
+          <input ref="documentInput" class="visually-hidden" type="file" :accept="documentAccept" @change="selectAttachment($event, 'DOCUMENT')">
           <textarea v-model="draft" maxlength="4000" rows="1" :aria-label="t('message')" :placeholder="t('message')" @keydown.enter.exact.prevent="sendMessage"></textarea>
-          <button :disabled="!draft.trim()" :aria-label="t('send')">➤</button>
+          <button class="send-button" :disabled="!draft.trim()" :aria-label="t('send')">➤</button>
         </form>
       </template>
       <div v-else class="chat-placeholder"><img src="/icon.svg" alt=""><h2>{{ t('chooseChat') }}</h2><p>{{ t('serverCiphertext') }}</p></div>
@@ -515,6 +742,24 @@ async function logout() {
         <button v-else class="primary wide" @click="pickGoogleContacts">{{ t('openContacts') }}</button>
         <div class="manual"><label for="email">{{ t('orEmail') }}</label><div><input id="email" v-model="manualEmail" type="email" autocomplete="off" placeholder="name@example.com" @keydown.enter="discoverManual"><button @click="discoverManual">{{ t('search') }}</button></div></div>
         <button v-for="user in discovered" :key="user.id" class="found-user" @click="startConversation(user)"><img :src="user.avatarUrl || '/icon.svg'" alt=""><span><strong>{{ user.name }}</strong><small>{{ user.email }}</small></span><b>＋</b></button>
+      </section>
+    </div>
+    <div v-if="pendingAttachment" class="modal-backdrop" @click.self="pendingAttachment = null">
+      <section class="dialog-card confirmation-card" role="dialog" aria-modal="true" aria-labelledby="attachment-confirm-title">
+        <button class="close" :aria-label="t('close')" @click="pendingAttachment = null">×</button>
+        <p class="eyebrow">{{ t('share') }}</p><h2 id="attachment-confirm-title">{{ t('confirmAttachment') }}</h2>
+        <p><strong>{{ pendingAttachment.file.name }}</strong><br>{{ formatBytes(pendingAttachment.file.size) }}</p>
+        <p v-if="pendingAttachment.kind === 'IMAGE'" class="privacy-warning">{{ t('photoMetadataWarning') }}</p>
+        <div class="confirmation-actions"><button class="quiet" @click="pendingAttachment = null">{{ t('cancel') }}</button><button class="primary" @click="confirmAttachment">{{ t('send') }}</button></div>
+      </section>
+    </div>
+    <div v-if="pendingLocation" class="modal-backdrop" @click.self="pendingLocation = null">
+      <section class="dialog-card confirmation-card" role="dialog" aria-modal="true" aria-labelledby="location-confirm-title">
+        <button class="close" :aria-label="t('close')" @click="pendingLocation = null">×</button>
+        <p class="eyebrow">{{ t('location') }}</p><h2 id="location-confirm-title">{{ t('confirmLocation') }}</h2>
+        <p class="coordinates">{{ pendingLocation.latitude.toFixed(6) }}, {{ pendingLocation.longitude.toFixed(6) }}<template v-if="pendingLocation.accuracy != null"><br>±{{ Math.round(pendingLocation.accuracy) }} m</template></p>
+        <p class="privacy-warning">{{ t('locationPrivacy') }}</p>
+        <div class="confirmation-actions"><button class="quiet" @click="pendingLocation = null">{{ t('cancel') }}</button><button class="primary" @click="confirmLocation">{{ t('sendLocation') }}</button></div>
       </section>
     </div>
     <p v-if="error" class="toast" role="alert" @click="error = ''">{{ error }}</p>

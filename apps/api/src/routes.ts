@@ -9,6 +9,7 @@ import { createSession, hashToken, readSessionToken, requireUser, sessionUser, S
 import { clientLogSchema, contactDiscoverySchema, createConversationSchema, googleCredentialSchema, localTestLoginSchema, logoutSchema, pushEndpointSchema, pushSubscriptionSchema } from './schemas.js';
 import { joinConversationMembers } from './socket.js';
 import { latestConversationMessages } from './message-history.js';
+import { attachmentRoutes } from './attachments.js';
 
 const google = new OAuth2Client(config.GOOGLE_CLIENT_ID);
 const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
@@ -122,6 +123,7 @@ api.post('/auth/logout', async (request, response) => {
 });
 
 api.use(requireUser);
+api.use(attachmentRoutes);
 api.post('/client-logs', (request, response) => {
   const input = clientLogSchema.safeParse(request.body);
   if (!input.success) return response.status(400).json({ error: 'INVALID_LOG' });

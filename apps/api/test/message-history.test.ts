@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { messageSelection } from '../src/message-selection.js';
 
 const findMany = vi.fn();
 vi.mock('../src/db.js', () => ({ db: { message: { findMany } } }));
@@ -18,7 +19,7 @@ describe('conversation history', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: { conversationId: 'conversation-1' },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { id: true, clientId: true, senderId: true, body: true, createdAt: true },
+      select: messageSelection,
     });
   });
 });

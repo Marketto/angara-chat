@@ -7,7 +7,21 @@ export const contactDiscoverySchema = z.object({
 });
 export const createConversationSchema = z.object({ participantId: z.string().min(1).max(128) });
 export const conversationIdSchema = z.string().min(1).max(128);
-export const plaintextMessageSchema = z.object({ conversationId: z.string().min(1).max(128), clientId: z.string().uuid(), body: z.string().trim().min(1).max(4000) });
+const messageIdentity = { conversationId: conversationIdSchema, clientId: z.string().uuid() };
+const textMessageSchema = z.object({
+  ...messageIdentity,
+  kind: z.literal('TEXT').optional().default('TEXT'),
+  body: z.string().trim().min(1).max(4000),
+});
+const locationMessageSchema = z.object({
+  ...messageIdentity,
+  kind: z.literal('LOCATION'),
+  body: z.string().trim().max(4000).optional().default(''),
+  locationLatitude: z.number().finite().min(-90).max(90),
+  locationLongitude: z.number().finite().min(-180).max(180),
+  locationAccuracy: z.number().finite().nonnegative().nullable().optional().default(null),
+});
+export const plaintextMessageSchema = z.union([textMessageSchema, locationMessageSchema]);
 const pushServiceDomains = ['googleapis.com', 'push.services.mozilla.com', 'push.apple.com', 'notify.windows.com'];
 function trustedPushEndpoint(endpoint: string) {
   try {

@@ -28,6 +28,11 @@ export function joinConversationMembers(conversationId: string, userIds: string[
   for (const userId of userIds) realtime?.to(`user:${userId}`).emit('conversation:new', { id: conversationId });
 }
 
+/** Publish a persisted message DTO. Callers must pass metadata-only selections, never attachment bytes. */
+export function publishConversationMessage(conversationId: string, message: unknown) {
+  realtime?.to(conversationRoom(conversationId)).emit('message:new', message);
+}
+
 export function attachSocket(server: HttpServer) {
   const io = new Server(server, { serveClient: false, cors: { origin: config.APP_ORIGIN, credentials: true } });
   realtime = io;
@@ -84,7 +89,7 @@ export function attachSocket(server: HttpServer) {
         if (persisted.kind === 'conflict') return acknowledge({ ok: false, error: 'CLIENT_ID_CONFLICT' });
         const { message } = persisted;
         if (persisted.kind === 'created') {
-          io.to(conversationRoom(input.data.conversationId)).emit('message:new', message);
+          publishConversationMessage(input.data.conversationId, message);
         }
         acknowledge({ ok: true, message });
         if (persisted.kind === 'created') {

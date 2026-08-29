@@ -1,11 +1,24 @@
-import type { PermanentMessageSendError } from './types';
+import type { MessageKind, PermanentMessageSendError } from './types';
+
+export interface QueuedAttachmentUpload {
+  blob: Blob;
+  fileName: string;
+  mediaType: string;
+  byteSize: number;
+  sha256: string;
+}
 
 export interface QueuedMessage {
   clientId: string;
   conversationId: string;
   userId: string;
+  kind?: MessageKind;
   body: string;
   createdAt: string;
+  attachmentUpload?: QueuedAttachmentUpload;
+  locationLatitude?: number;
+  locationLongitude?: number;
+  locationAccuracy?: number;
   failure?: PermanentMessageSendError;
 }
 

@@ -1,6 +1,18 @@
 export interface User { id: string; email?: string; name: string; avatarUrl: string | null }
+export type MessageKind = 'TEXT' | 'IMAGE' | 'DOCUMENT' | 'LOCATION';
+export interface Attachment {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  byteSize: number;
+  sha256: string;
+}
 export interface Message {
-  id: string; clientId: string; conversationId?: string; senderId: string; body: string; createdAt: string; deliveryState?: 'queued' | 'sending' | 'failed';
+  id: string; clientId: string; conversationId?: string; senderId: string; kind?: MessageKind; body: string; createdAt: string; deliveryState?: 'queued' | 'sending' | 'failed';
+  attachment?: Attachment | null;
+  locationLatitude?: number | null;
+  locationLongitude?: number | null;
+  locationAccuracy?: number | null;
 }
 export type MessageSendError = 'RATE_LIMITED' | 'INVALID_MESSAGE' | 'FORBIDDEN' | 'CLIENT_ID_CONFLICT' | 'INTERNAL_ERROR';
 export type PermanentMessageSendError = Extract<MessageSendError, 'INVALID_MESSAGE' | 'FORBIDDEN' | 'CLIENT_ID_CONFLICT'>;

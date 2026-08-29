@@ -32,6 +32,8 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
     const isPersistedRapidDuplicate = previous !== undefined
       && previous.deliveryState === undefined
       && message.deliveryState === undefined
+      && (previous.kind === undefined || previous.kind === 'TEXT')
+      && (message.kind === undefined || message.kind === 'TEXT')
       && previous.senderId === message.senderId
       && previous.body === message.body
       && elapsed >= 0

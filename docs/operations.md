@@ -43,8 +43,25 @@ docker compose exec -T db pg_dump -U chat -d chat --format=custom > angara-YYYY-
 
 At least periodically, restore a backup into an isolated PostgreSQL instance and
 verify that the expected schemas and records are present. A restore confirms the
-backup is usable, but it does **not** make old messages readable after a user has
-lost their browser device key.
+backup is usable. Treat dumps as sensitive plaintext: they include messages,
+attachment names and bytes, shared coordinates, and account metadata.
+
+Attachments are stored in PostgreSQL and therefore increase the database,
+volume, dump size, backup duration, and restore duration. Monitor both the whole
+database and the attachment relation, for example from an authorized `psql`
+session:
+
+```sql
+SELECT pg_size_pretty(pg_database_size(current_database()));
+SELECT pg_size_pretty(pg_total_relation_size('"MessageAttachment"'));
+```
+
+The 8 MiB per-file cap, upload rate limit, concurrency cap, and fixed 256 MiB
+aggregate quota per sender are availability controls, not a retention policy.
+Define how long messages and backups are retained before production use.
+Deleting a message also deletes its attachment through the database relation;
+coordinate deletion with backups and legal requirements rather than manually
+deleting binary rows.
 
 ## Deployment and incident response
 
@@ -55,6 +72,26 @@ docker compose config
 ./deploy/deploy.sh
 docker compose ps
 ```
+
+For a sharing release, also verify before switching traffic:
+
+```bash
+node --test deploy/caddyfile.test.mjs
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+docker compose config
+```
+
+Record the previous release commit and a fresh backup before deployment. The
+attachment migration is additive, so a code rollback can rebuild the recorded
+previous commit from a clean deployment checkout while leaving the new table
+and nullable message columns in place. Do not reverse or drop the migration as
+an incident shortcut: that would delete attachment and location data. After a
+rollback, repeat health, log, text-message, and multi-device checks; attachments
+created by the newer release remain stored but are not available through the
+older UI until the feature is deployed again.
 
 `deploy/deploy.sh` generates a new build ID for every release. The API exposes
 that ID through `/api/config`; an installed PWA compares it to its own build,
@@ -82,6 +119,24 @@ The client shows **Enable notifications** only while the current device lacks a
 usable browser subscription or cannot synchronize it with the server. After a
 successful registration the action disappears. Focusing or reopening the PWA
 checks the device again, so revoking browser permission makes the action return.
+
+After an attachment/location release, use two accounts and a second device for
+the sender. Send an allowed image, an allowed document, and a confirmed location
+in both directions; each item must appear once on all three devices. Downloaded
+documents must not render inline, and an authenticated non-member must receive
+the same not-found result as an unknown attachment. Queue a small attachment
+offline, reconnect, and confirm it uploads once without delaying the text
+outbox. Reject a file over 8 MiB at the edge/API boundary without restarting the
+app. Confirm the location prompt appears only after the explicit action and that
+OpenStreetMap receives no tile request until the viewer opens the placeholder;
+the opened map must show attribution.
+
+Finally inspect application memory, PostgreSQL/volume growth, upload error rate,
+`docker system df`, and `df -h /`. A 413 indicates the intentional per-file
+limit; repeated 429/503 responses can indicate abusive rate/concurrency or a VPS
+under memory pressure. Public OpenStreetMap tiles have no application-controlled
+availability guarantee, so tile failure must not prevent reading the coordinates
+or the rest of the conversation.
 
 Every deployment clears dangling Angara release images before the build and
 after the new release. The script never uses global Docker pruning on the shared

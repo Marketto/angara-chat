@@ -20,11 +20,25 @@ transport omits that header, Angara instead requires both the configured `Host`
 and `Sec-Fetch-Site: same-origin`; session authentication and per-message
 membership checks remain mandatory.
 
-Message content is protected in transit by HTTPS/WebSocket TLS, but it is stored
-as plaintext in PostgreSQL. The application server, database administrators, and
-a database-only compromise can read message text. Database backups therefore
-contain sensitive plaintext and require encryption, access control, retention,
+Message content is protected in transit by HTTPS/WebSocket TLS, but text,
+attachment bytes and metadata, and shared coordinates are stored as plaintext
+in PostgreSQL. The application server, database administrators, and a
+database-only compromise can read them. Database backups therefore contain
+sensitive plaintext and require encryption, access control, defined retention,
 and restoration testing.
+
+Attachment uploads are capped at 8 MiB (8,388,608 body bytes) at both Caddy and
+the API. Authentication and conversation membership are checked before the API
+buffers the raw body; upload concurrency and request rate are bounded. The
+server verifies an allowlisted media type against file signatures, rejects
+SVG/HTML, validates the declared digest, and never publishes binary bytes
+through history or realtime events. Downloads verify membership through the
+message conversation, return a generic not-found response outside it, use
+private non-stored responses, set `nosniff`, and force document download. These
+checks reduce parser and IDOR risk but do not make user-provided files safe to
+open in another application. A fixed 256 MiB aggregate attachment quota per
+sender limits storage exhaustion; it is an availability control, not a data
+retention or privacy boundary.
 
 The server sees accounts, participants, plaintext message content, timestamps,
 online presence implicit in socket connections, IP-level traffic and push
@@ -44,10 +58,19 @@ directly, filters Gmail addresses, and sends only candidate addresses to the API
 for matching. The service does not store the address book or the Google access
 token; it returns only registered users who do not already share a conversation.
 
-Messages created while offline are retained as plaintext in the browser's
-IndexedDB only until the API acknowledges them, or until the user explicitly
-signs out. A person with access to the unlocked browser profile can read that
-local pending-message queue.
+Messages created while offline, attachment `Blob`s, and coordinates are retained
+as plaintext in the browser's IndexedDB only until the API acknowledges them, or
+until the user explicitly signs out. A person with access to the unlocked
+browser profile can read that local pending-message queue.
+
+Angara does not remove EXIF or other embedded metadata from shared images. Users
+should remove metadata before sending sensitive photographs. Location sharing
+requires an explicit action, browser permission, and confirmation; the stored
+coordinates can still reveal an exact home, workplace, or routine. A shared map
+is initially a local placeholder. Only after the viewer opens it does the app
+request public OpenStreetMap tiles with attribution; OpenStreetMap can then
+observe the viewer's IP address, request time, and approximate viewed area. Tile
+requests are not prefetched or persisted for offline use.
 
 This is a web application: a fully compromised VPS can serve modified JavaScript
 and can read stored message text. The current design provides no confidentiality

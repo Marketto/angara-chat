@@ -53,6 +53,21 @@ Google:
 pnpm --filter @angara/api exec vitest run test/socket-multidevice.integration.test.ts
 ```
 
+For sharing smoke tests, use the same Alice/Bob profiles and verify in both
+directions: an allowed image, an allowed document, and an explicitly confirmed
+location. Take one sender offline before selecting a small file, restore the
+network, and confirm the pending item uploads once and appears on the sender's
+second device and the recipient. A non-member attachment URL must return 404.
+The OpenStreetMap request must not occur until the recipient chooses to open the
+map, and its attribution must remain visible. Browser geolocation requires a
+secure context; localhost is accepted for local development.
+
+Images are limited to JPEG, PNG, GIF, and WebP. Documents are limited to PDF and
+UTF-8 plain text. SVG and HTML are rejected; each file is capped at exactly
+8 MiB (8,388,608 bytes), with a fixed aggregate quota of 256 MiB per sender
+account. Test fixtures should be minimal and contain neither personal files nor
+real coordinates.
+
 ## Validation
 
 Run a focused package check while iterating:
@@ -60,6 +75,7 @@ Run a focused package check while iterating:
 ```bash
 pnpm --filter @angara/web test
 pnpm --filter @angara/api test
+node --test deploy/caddyfile.test.mjs
 ```
 
 Before handoff or a pull request, run the workspace suite:

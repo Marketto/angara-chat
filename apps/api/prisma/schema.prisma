@@ -61,17 +61,40 @@ model ConversationMember {
 }
 
 model Message {
-  id             String       @id @default(cuid())
-  clientId       String
-  conversationId String
-  senderId       String
-  body           String       @db.Text
-  createdAt      DateTime     @default(now())
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  id                String             @id @default(cuid())
+  clientId          String
+  conversationId    String
+  senderId          String
+  kind              MessageKind        @default(TEXT)
+  body              String             @db.Text
+  locationLatitude  Float?
+  locationLongitude Float?
+  locationAccuracy  Float?
+  createdAt         DateTime           @default(now())
+  conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender            User               @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  attachment        MessageAttachment?
 
   @@unique([conversationId, clientId])
   @@index([conversationId, createdAt])
+}
+
+enum MessageKind {
+  TEXT
+  IMAGE
+  DOCUMENT
+  LOCATION
+}
+
+model MessageAttachment {
+  id        String  @id @default(cuid())
+  messageId String  @unique
+  fileName  String
+  mediaType String
+  byteSize  Int
+  sha256    String
+  data      Bytes
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
 model PushSubscription {

@@ -4,8 +4,11 @@ const create = vi.fn();
 const findUnique = vi.fn();
 vi.mock('../src/db.js', () => ({ db: { message: { create, findUnique } } }));
 
-const input = { conversationId: 'conversation-1', clientId: crypto.randomUUID(), body: 'ciao' };
-const message = { id: 'message-1', ...input, senderId: 'sender-1', createdAt: new Date() };
+const input = { conversationId: 'conversation-1', clientId: crypto.randomUUID(), kind: 'TEXT' as const, body: 'ciao' };
+const message = {
+  id: 'message-1', ...input, senderId: 'sender-1', createdAt: new Date(),
+  locationLatitude: null, locationLongitude: null, locationAccuracy: null, attachment: null,
+};
 
 describe('message persistence idempotency', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -39,5 +42,19 @@ describe('message persistence idempotency', () => {
     const { persistMessage } = await import('../src/message-persistence.js');
 
     await expect(persistMessage(input, 'sender-1')).resolves.toEqual({ kind: 'conflict' });
+  });
+
+  it('persists a location and rejects an idempotency retry with changed coordinates', async () => {
+    const location = {
+      conversationId: 'conversation-1', clientId: crypto.randomUUID(), kind: 'LOCATION' as const,
+      body: '', locationLatitude: 61.0137, locationLongitude: 69.1962, locationAccuracy: 10,
+    };
+    const stored = { id: 'location-1', ...location, senderId: 'sender-1', createdAt: new Date(), attachment: null };
+    create.mockResolvedValueOnce(stored).mockRejectedValueOnce({ code: 'P2002' });
+    findUnique.mockResolvedValue({ ...stored, locationLongitude: 70 });
+    const { persistMessage } = await import('../src/message-persistence.js');
+
+    await expect(persistMessage(location, 'sender-1')).resolves.toEqual({ kind: 'created', message: stored });
+    await expect(persistMessage(location, 'sender-1')).resolves.toEqual({ kind: 'conflict' });
   });
 });

@@ -1,5 +1,6 @@
 import express from 'express';
 import helmet from 'helmet';
+import type { IncomingMessage } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { api } from './routes.js';
@@ -14,7 +15,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://accounts.google.com/gsi/style'],
-      imgSrc: ["'self'", 'data:', 'https://*.googleusercontent.com'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://*.googleusercontent.com', 'https://tile.openstreetmap.org'],
       connectSrc: ["'self'", 'wss:', 'https://accounts.google.com/gsi/', 'https://people.googleapis.com'],
       frameSrc: ['https://accounts.google.com/gsi/'],
       objectSrc: ["'none'"],
@@ -24,9 +25,22 @@ app.use(helmet({
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
-app.use(express.json({ limit: '64kb' }));
-app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 app.use(verifyOrigin);
+const isAttachmentUpload = (request: IncomingMessage) => request.method === 'POST'
+  && /^\/api\/conversations\/[^/]+\/attachments$/u.test(request.url?.split('?', 1)[0] ?? '');
+const hasMediaType = (request: IncomingMessage, expected: string) => {
+  const contentType = request.headers['content-type'];
+  return typeof contentType === 'string' && contentType.split(';', 1)[0]?.trim().toLowerCase() === expected;
+};
+app.use(express.json({
+  limit: '64kb',
+  type: (request) => !isAttachmentUpload(request) && hasMediaType(request, 'application/json'),
+}));
+app.use(express.urlencoded({
+  extended: false,
+  limit: '64kb',
+  type: (request) => !isAttachmentUpload(request) && hasMediaType(request, 'application/x-www-form-urlencoded'),
+}));
 app.use('/api', api);
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');

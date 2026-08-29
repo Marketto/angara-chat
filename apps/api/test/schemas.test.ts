@@ -6,6 +6,33 @@ describe('plaintext message schema', () => {
     expect(plaintextMessageSchema.safeParse({ conversationId: 'conversation-1', clientId: crypto.randomUUID(), body: 'ciao' }).success).toBe(true);
     expect(plaintextMessageSchema.safeParse({ conversationId: 'c', clientId: crypto.randomUUID(), body: ' '.repeat(4001) }).success).toBe(false);
   });
+
+  const common = { conversationId: 'conversation-1', clientId: crypto.randomUUID() };
+
+  it('keeps accepting legacy text messages and assigns the TEXT kind', () => {
+    expect(plaintextMessageSchema.parse({ ...common, body: ' ciao ' })).toMatchObject({ kind: 'TEXT', body: 'ciao' });
+  });
+
+  it('accepts a location with finite coordinates in range', () => {
+    expect(plaintextMessageSchema.parse({
+      ...common, kind: 'LOCATION', body: '', locationLatitude: 61.0137,
+      locationLongitude: 69.1962, locationAccuracy: 12.5,
+    })).toMatchObject({ kind: 'LOCATION', locationAccuracy: 12.5 });
+  });
+
+  it.each([
+    { locationLatitude: 91, locationLongitude: 10 },
+    { locationLatitude: 10, locationLongitude: -181 },
+    { locationLatitude: Number.NaN, locationLongitude: 10 },
+    { locationLatitude: 10, locationLongitude: 10, locationAccuracy: -1 },
+    { locationLatitude: 10, locationLongitude: 10, locationAccuracy: Number.POSITIVE_INFINITY },
+  ])('rejects invalid location coordinates: %j', (location) => {
+    expect(plaintextMessageSchema.safeParse({ ...common, kind: 'LOCATION', body: '', ...location }).success).toBe(false);
+  });
+
+  it('does not accept attachment message kinds over the socket', () => {
+    expect(plaintextMessageSchema.safeParse({ ...common, kind: 'IMAGE', body: '' }).success).toBe(false);
+  });
 });
 
 describe('contact discovery schema', () => {
