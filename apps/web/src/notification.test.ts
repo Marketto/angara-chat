@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { notificationPresentation } from './notification';
+import { notificationPresentation, shouldSilencePushNotification } from './notification';
 
 describe('push notification presentation', () => {
+  it('silences the system notification when the active app supplies its own sound', () => {
+    expect(shouldSilencePushNotification([{ focused: false }, { focused: true }])).toBe(true);
+    expect(shouldSilencePushNotification([{ focused: false }])).toBe(false);
+    expect(shouldSilencePushNotification([])).toBe(false);
+  });
+
   it('uses the sender avatar as the message icon and Angara as the monochrome badge', () => {
     expect(notificationPresentation({
       title: 'Marco',

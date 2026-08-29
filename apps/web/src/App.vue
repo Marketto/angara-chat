@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import { api } from './api';
 import { contactEmails, gmailEmails } from './contacts';
 import { claimDraft, isRapidDuplicateSubmission, restoreDraft, type MessageSubmission } from './message-submit';
+import { createIncomingMessageSound } from './message-sound';
 import { mergeMessages, reconcileMessage } from './messages';
 import { outbox, type QueuedMessage } from './outbox';
 import { deliverQueuedMessages } from './outbox-delivery';
@@ -36,7 +37,9 @@ let socket: Socket | null = null;
 let outboxRetryTimer: number | undefined;
 let socketReconnectTimer: number | undefined;
 let lastSubmission: MessageSubmission | null = null;
+let incomingMessageAudio: HTMLAudioElement | null = null;
 const flushOutbox = createSingleFlight(flushOutboxBatch);
+const incomingMessageSound = createIncomingMessageSound(playIncomingMessageSound);
 
 const activeConversation = computed(() => conversations.value.find(({ id }) => id === activeId.value) ?? null);
 const canPickContacts = computed(() => Boolean(navigator.contacts?.select));
@@ -46,6 +49,7 @@ watch(locale, (value) => { document.documentElement.lang = value; }, { immediate
 function setLocale(event: Event) { locale.value = (event.target as HTMLSelectElement).value as Locale; }
 
 onMounted(async () => {
+  window.addEventListener('pointerdown', prepareIncomingMessageSound, { once: true });
   window.addEventListener('beforeinstallprompt', captureInstallPrompt);
   window.addEventListener('appinstalled', clearInstallPrompt);
   window.addEventListener('focus', refreshPushState);
@@ -67,12 +71,42 @@ onBeforeUnmount(() => {
   clearOutboxRetry();
   clearSocketReconnect();
   socket?.disconnect();
+  window.removeEventListener('pointerdown', prepareIncomingMessageSound);
   window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
   window.removeEventListener('appinstalled', clearInstallPrompt);
   window.removeEventListener('focus', refreshPushState);
   window.removeEventListener('online', retryOutbox);
   window.removeEventListener('online', refreshPushState);
 });
+
+function audioForIncomingMessages() {
+  if (!incomingMessageAudio) {
+    incomingMessageAudio = new Audio('/sounds/eco-del-baikal.wav');
+    incomingMessageAudio.preload = 'auto';
+  }
+  return incomingMessageAudio;
+}
+
+function playIncomingMessageSound() {
+  const audio = audioForIncomingMessages();
+  audio.volume = 1;
+  audio.currentTime = 0;
+  void audio.play().catch(() => undefined);
+}
+
+async function prepareIncomingMessageSound() {
+  const audio = audioForIncomingMessages();
+  audio.muted = true;
+  try {
+    await audio.play();
+    audio.pause();
+    audio.currentTime = 0;
+  } catch {
+    // Some browsers unlock audio only after a later media interaction.
+  } finally {
+    audio.muted = false;
+  }
+}
 
 function captureInstallPrompt(event: Event) {
   event.preventDefault();
@@ -157,6 +191,13 @@ async function enterApp() {
   });
   socket.on('delivery:ready', () => { void synchronizeAfterReconnect().catch(() => undefined); });
   socket.on('message:new', async (message: Message) => {
+    if (me.value) {
+      incomingMessageSound.handle(
+        message,
+        me.value.id,
+        document.visibilityState === 'visible' && document.hasFocus(),
+      );
+    }
     if (message.conversationId === activeId.value) {
       messages.value = reconcileMessage(messages.value, message);
       await scrollToBottom();

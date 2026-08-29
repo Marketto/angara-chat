@@ -42,6 +42,12 @@ the sender is excluded. The encrypted Web Push payload carries the sender
 display name and optional avatar URL for OS-controlled presentation, but no
 message text.
 
+When an Angara window is focused, realtime delivery uses the bundled “Eco del
+Baikal” cue and the service worker keeps the foreground system banner silent to
+avoid duplicate sounds. When the app is unfocused or closed, Web Push remains
+responsible for the notification and the browser or operating system chooses
+its sound.
+
 After reconnecting, the API marks a socket delivery-ready only after restoring
 all authorized conversation rooms. The client then refreshes the active history
 and drains its persistent IndexedDB outbox. History snapshots are merged with

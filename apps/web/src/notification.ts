@@ -6,6 +6,10 @@ export interface PushNotificationData {
   tag?: string;
 }
 
+export function shouldSilencePushNotification(clients: ReadonlyArray<{ focused: boolean }>) {
+  return clients.some(({ focused }) => focused);
+}
+
 function senderIcon(value?: string) {
   if (!value) return '/notification-icon.png';
   try {

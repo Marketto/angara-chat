@@ -1,5 +1,5 @@
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
-import { notificationPresentation, type PushNotificationData } from './notification';
+import { notificationPresentation, shouldSilencePushNotification, type PushNotificationData } from './notification';
 import { openNotificationTarget } from './notification-click';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string }> };
@@ -12,7 +12,11 @@ self.addEventListener('activate', (event) => { event.waitUntil(self.clients.clai
 
 self.addEventListener('push', (event) => {
   const { title, options } = notificationPresentation(event.data?.json() as PushNotificationData | undefined);
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil((async () => {
+    const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (shouldSilencePushNotification(windowClients)) options.silent = true;
+    await self.registration.showNotification(title, options);
+  })());
 });
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
