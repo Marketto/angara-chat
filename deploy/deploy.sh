@@ -15,4 +15,8 @@ cleanup_angara_images() {
 
 cleanup_angara_images
 docker compose up -d --build
+# The Caddyfile is mounted as a single file. Archive-based releases replace its
+# inode, so an already-running container can keep seeing the previous mount.
+# Recreate only Caddy to bind the current policy without restarting the app.
+docker compose up -d --force-recreate --no-deps caddy
 cleanup_angara_images
