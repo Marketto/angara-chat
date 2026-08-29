@@ -48,9 +48,12 @@ avoid duplicate sounds. When the app is unfocused or closed, Web Push remains
 responsible for the notification and the browser or operating system chooses
 its sound.
 
-After reconnecting, the API marks a socket delivery-ready only after restoring
-all authorized conversation rooms. The client then refreshes the active history
-and drains its persistent IndexedDB outbox. History snapshots are merged with
+After reconnecting, the client drains its persistent IndexedDB outbox as soon
+as the socket connects, independently from slower REST synchronization. The API
+still marks the socket delivery-ready after restoring all authorized
+conversation rooms; at that point the client refreshes the active history in
+parallel with another idempotent outbox wake-up. Returning online or focusing
+the app also wakes the queue. History snapshots are merged with
 realtime events received while the request is in flight, so a late HTTP response
 cannot overwrite a newly delivered message. Transient failures are retried, and
 idempotent retries acknowledge the stored message to the retrying sender without

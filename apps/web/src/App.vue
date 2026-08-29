@@ -8,6 +8,7 @@ import { createIncomingMessageSound } from './message-sound';
 import { mergeMessages, reconcileMessage } from './messages';
 import { outbox, type QueuedMessage } from './outbox';
 import { deliverQueuedMessages } from './outbox-delivery';
+import { createOutboxWakeup } from './outbox-wakeup';
 import { currentPushEndpoint, enablePush, syncPushSubscription } from './push';
 import { createSingleFlight } from './single-flight';
 import { locale, supportedLocales, t, type Locale } from './i18n';
@@ -39,6 +40,12 @@ let socketReconnectTimer: number | undefined;
 let lastSubmission: MessageSubmission | null = null;
 let incomingMessageAudio: HTMLAudioElement | null = null;
 const flushOutbox = createSingleFlight(flushOutboxBatch);
+const outboxWakeup = createOutboxWakeup({
+  isConnected: () => Boolean(socket?.connected),
+  connect: () => socket?.connect(),
+  flushOutbox,
+  synchronize: synchronizeAfterReconnect,
+});
 const incomingMessageSound = createIncomingMessageSound(playIncomingMessageSound);
 
 const activeConversation = computed(() => conversations.value.find(({ id }) => id === activeId.value) ?? null);
@@ -53,8 +60,10 @@ onMounted(async () => {
   window.addEventListener('beforeinstallprompt', captureInstallPrompt);
   window.addEventListener('appinstalled', clearInstallPrompt);
   window.addEventListener('focus', refreshPushState);
+  window.addEventListener('focus', retryOutbox);
   window.addEventListener('online', retryOutbox);
   window.addEventListener('online', refreshPushState);
+  document.addEventListener('visibilitychange', retryVisibleOutbox);
   try {
     config.value = await api.config();
     updateWhenBackendChanges(config.value.buildVersion);
@@ -75,8 +84,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
   window.removeEventListener('appinstalled', clearInstallPrompt);
   window.removeEventListener('focus', refreshPushState);
+  window.removeEventListener('focus', retryOutbox);
   window.removeEventListener('online', retryOutbox);
   window.removeEventListener('online', refreshPushState);
+  document.removeEventListener('visibilitychange', retryVisibleOutbox);
 });
 
 function audioForIncomingMessages() {
@@ -114,7 +125,10 @@ function captureInstallPrompt(event: Event) {
 }
 
 function clearInstallPrompt() { deferredInstallPrompt.value = null; }
-function retryOutbox() { socket?.connect(); void flushOutbox(); }
+function retryOutbox() { outboxWakeup.connectivityAvailable(); }
+function retryVisibleOutbox() {
+  if (document.visibilityState === 'visible') retryOutbox();
+}
 function clearOutboxRetry() {
   if (outboxRetryTimer !== undefined) window.clearTimeout(outboxRetryTimer);
   outboxRetryTimer = undefined;
@@ -184,12 +198,12 @@ async function enterApp() {
   socket = io({ withCredentials: true });
   socket.on('connect', () => {
     clearSocketReconnect();
-    void refreshConversations();
+    outboxWakeup.socketConnected();
   });
   socket.on('connect_error', (failure: Error) => {
     if (failure.message !== 'unauthorized') scheduleSocketReconnect();
   });
-  socket.on('delivery:ready', () => { void synchronizeAfterReconnect().catch(() => undefined); });
+  socket.on('delivery:ready', () => { void outboxWakeup.deliveryReady(); });
   socket.on('message:new', async (message: Message) => {
     if (me.value) {
       incomingMessageSound.handle(
@@ -218,19 +232,15 @@ async function refreshPushState() {
 async function refreshConversations() { conversations.value = await api.conversations(); }
 
 async function synchronizeAfterReconnect() {
-  try {
-    await refreshConversations();
-    const conversationId = activeId.value;
-    if (conversationId) {
-      const history = await api.messages(conversationId);
-      if (activeId.value === conversationId) {
-        messages.value = mergeMessages(messages.value, history);
-        await showQueuedMessages(conversationId);
-        await scrollToBottom();
-      }
+  await refreshConversations();
+  const conversationId = activeId.value;
+  if (conversationId) {
+    const history = await api.messages(conversationId);
+    if (activeId.value === conversationId) {
+      messages.value = mergeMessages(messages.value, history);
+      await showQueuedMessages(conversationId);
+      await scrollToBottom();
     }
-  } finally {
-    void flushOutbox();
   }
 }
 
